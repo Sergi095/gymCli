@@ -1,2 +1,4 @@
 gymCli
 obj/
+gymcli
+*.db
