@@ -2,6 +2,8 @@
 #define GYM_CLI_APP_H
 
 #include "GymDatabse.h"
+#include <string>
+#include <vector>
 
 class GymCliApp {
 private:
@@ -32,8 +34,17 @@ private:
     void editRoutineName(WorkoutRoutine& routine);
     void editRoutineDayAssignments(WorkoutRoutine& routine);
 
-    // Helper method for determining body part from category
+    // Helper methods for determining body part from category
     BodyPart getCategoryBodyPart(const std::string& category);
+    bool isUpperBodyCategory(const std::string& category);
+    bool isLowerBodyCategory(const std::string& category);
+    bool containsIgnoreCase(const std::string& str, const std::string& substr);
+    
+    // Helper methods for dates and days
+    std::vector<std::string> getDaysOfWeek();
+    std::string getCurrentDayOfWeek();
+    std::string getCurrentDate();
+    std::string getDateForDayOfWeek(const std::string& dayOfWeek);
 
 public:
     GymCliApp();
