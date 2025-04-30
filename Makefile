@@ -1,18 +1,19 @@
 # Detect OS
-ifeq ($(OS),Windows_NT)
+OS_NAME := $(shell uname 2>/dev/null || echo Windows)
+ifeq ($(OS_NAME),Windows)
     DETECTED_OS := Windows
     EXE_EXT := .exe
-    RM_CMD := del /Q
-    MKDIR_CMD := mkdir
-    CP_CMD := copy
+    RM := del /Q
+    MKDIR := mkdir
+    CP := copy
     INSTALL_DIR := $(APPDATA)\GymCli
     SYSTEM_BIN := C:\Windows\System32
 else
-    DETECTED_OS := $(shell uname -s)
+    DETECTED_OS := $(OS_NAME)
     EXE_EXT :=
-    RM_CMD := rm -rf
-    MKDIR_CMD := mkdir -p
-    CP_CMD := cp
+    RM := rm -rf
+    MKDIR := mkdir -p
+    CP := cp
     INSTALL_DIR := $(HOME)/.local/share/gymcli
     SYSTEM_BIN := /usr/local/bin
 endif
@@ -20,109 +21,93 @@ endif
 CXX = g++
 CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic
 TARGET = gymcli$(EXE_EXT)
+BIN_TARGET = gymcli.bin$(EXE_EXT)
 SRCDIR = src
 INCDIR = include
 OBJDIR = obj
-
-# Database files
 DB_FILES = gym_data.db gym_routines.db
 
-# Source files
 SRCS = $(wildcard $(SRCDIR)/*.cpp)
-# Object files
 OBJS = $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SRCS))
-# Header files
 DEPS = $(wildcard $(INCDIR)/*.h)
 
-# Main build rule
 all: $(OBJDIR) $(TARGET)
 	@echo "Build complete for $(DETECTED_OS)"
 
-# Create obj directory
 $(OBJDIR):
-	$(MKDIR_CMD) $(OBJDIR)
+	$(MKDIR) $(OBJDIR)
 
-# Link object files to create executable
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
-# Compile source files to object files
 $(OBJDIR)/%.o: $(SRCDIR)/%.cpp $(DEPS)
 	$(CXX) $(CXXFLAGS) -I$(INCDIR) -c -o $@ $<
 
-# Clean rule (doesn't touch databases)
 clean:
-	$(RM_CMD) $(OBJDIR) $(TARGET)
+	$(RM) $(OBJDIR) $(TARGET)
 	@echo "Cleaned build files"
 
-# OS-specific install rules
+install: $(TARGET)
 ifeq ($(DETECTED_OS),Windows)
-install: $(TARGET)
-	@echo "Installing for Windows..."
-	@echo "Creating data directory in %APPDATA%\GymCli"
-	@if not exist "$(INSTALL_DIR)" $(MKDIR_CMD) "$(INSTALL_DIR)" 
-	@echo "Copying executable"
-	@$(CP_CMD) $(TARGET) "$(TARGET)"
-	@echo "Creating batch file for easy access"
-	@echo @echo off > gymcli.bat
-	@echo set DATADIR=%%APPDATA%%\GymCli >> gymcli.bat
-	@echo if not exist "%%DATADIR%%" mkdir "%%DATADIR%%" >> gymcli.bat
-	@echo cd /d "%%DATADIR%%" >> gymcli.bat
-	@echo "%%~dp0gymcli.exe" >> gymcli.bat
-	@echo "Installation complete. Run 'gymcli.bat' to start the program."
+	@echo Installing on Windows...
+	@if not exist "$(INSTALL_DIR)" $(MKDIR) "$(INSTALL_DIR)"
+	@$(CP) $(TARGET) "$(SYSTEM_BIN)\$(BIN_TARGET)"
+	@echo @echo off > "$(SYSTEM_BIN)\gymcli.bat"
+	@echo set DATADIR=%%APPDATA%%\GymCli >> "$(SYSTEM_BIN)\gymcli.bat"
+	@echo if not exist "%%DATADIR%%" mkdir "%%DATADIR%%" >> "$(SYSTEM_BIN)\gymcli.bat"
+	@echo cd /d "%%DATADIR%%" >> "$(SYSTEM_BIN)\gymcli.bat"
+	@echo $(SYSTEM_BIN)\$(BIN_TARGET) >> "$(SYSTEM_BIN)\gymcli.bat"
+	@echo Installation complete.
 else
-install: $(TARGET)
-	@echo "Installing for $(DETECTED_OS)..."
-	@echo "Installing $(TARGET) to $(SYSTEM_BIN)"
-	@sudo mkdir -p $(SYSTEM_BIN)
-	@sudo cp $(TARGET) $(SYSTEM_BIN)/
-	@echo "Creating data directory at $(INSTALL_DIR)"
-	@mkdir -p $(INSTALL_DIR)
-	@echo "Moving database files to $(INSTALL_DIR)"
+	@echo Installing on $(DETECTED_OS)...
+	sudo mkdir -p "$(SYSTEM_BIN)"
+	sudo cp "$(TARGET)" "$(SYSTEM_BIN)/$(BIN_TARGET)"
+	mkdir -p "$(INSTALL_DIR)"
 	@for db in $(DB_FILES); do \
-		if [ -f "$$db" ]; then \
-			cp "$$db" "$(INSTALL_DIR)/"; \
-		fi; \
+		if [ -f "$$db" ]; then cp "$$db" "$(INSTALL_DIR)/"; fi; \
 	done
-	@echo "Creating launcher script"
-	@echo "#!/bin/bash" > gymcli_launcher
-	@echo "cd $(INSTALL_DIR)" >> gymcli_launcher
-	@echo "$(SYSTEM_BIN)/$(TARGET)" >> gymcli_launcher
-	@chmod +x gymcli_launcher
-	@sudo cp gymcli_launcher $(SYSTEM_BIN)/gymcli
-	@rm gymcli_launcher
-	@echo "Installation complete. Run 'gymcli' to start the program."
+	echo '#!/bin/bash' > gymcli_launcher
+	echo 'DATA_DIR="$$HOME/.local/share/gymcli"' >> gymcli_launcher
+	echo 'cd "$$DATA_DIR" || exit 1' >> gymcli_launcher
+	echo 'exec "$(SYSTEM_BIN)/$(BIN_TARGET)"' >> gymcli_launcher
+	chmod +x gymcli_launcher
+	sudo cp gymcli_launcher "$(SYSTEM_BIN)/gymcli"
+	rm gymcli_launcher
+	@echo Installation complete.
 endif
 
-# OS-specific uninstall rules
+uninstall:
 ifeq ($(DETECTED_OS),Windows)
-uninstall:
-	@echo "Uninstalling from Windows..."
-	@echo "Removing executable and batch file"
-	@del $(TARGET) gymcli.bat
-	@echo "Do you want to remove all data including database files? (y/N)"
-	@set /p CONFIRM="Enter y to confirm: "
-	@if "%CONFIRM%"=="y" (rd /s /q "$(INSTALL_DIR)" & echo "All data removed.") else (echo "Data preserved in %APPDATA%\GymCli")
-	@echo "Uninstallation complete."
+	@echo Uninstalling from Windows...
+	@del "$(SYSTEM_BIN)\$(BIN_TARGET)" "$(SYSTEM_BIN)\gymcli.bat"
 else
-uninstall:
-	@echo "Uninstalling from $(DETECTED_OS)..."
-	@echo "Removing $(TARGET) from $(SYSTEM_BIN)"
-	@sudo rm -f $(SYSTEM_BIN)/$(TARGET) $(SYSTEM_BIN)/gymcli
-	@echo "Do you want to remove all data including database files? (y/N)"
-	@read -r response; \
-	if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
-		echo "Removing data directory $(INSTALL_DIR)"; \
-		rm -rf $(INSTALL_DIR); \
-		echo "All data has been removed."; \
-	else \
-		echo "Data preserved in $(INSTALL_DIR)"; \
-	fi
-	@echo "Uninstallation complete."
+	@echo Uninstalling from $(DETECTED_OS)...
+	sudo rm -f "$(SYSTEM_BIN)/$(BIN_TARGET)" "$(SYSTEM_BIN)/gymcli"
+	@echo "To delete data, remove $(INSTALL_DIR) manually if desired."
 endif
 
-# Run rule
 run: $(TARGET)
 	./$(TARGET)
 
-.PHONY: all clean install uninstall run
+devinstall: $(TARGET)
+ifeq ($(DETECTED_OS),Windows)
+	@if not exist "test_install" mkdir test_install
+	@$(CP) $(TARGET) "test_install\$(BIN_TARGET)"
+	@echo @echo off > "test_install\gymcli.bat"
+	@echo set DATADIR=test_data >> "test_install\gymcli.bat"
+	@echo if not exist "%%DATADIR%%" mkdir "%%DATADIR%%" >> "test_install\gymcli.bat"
+	@echo cd /d "%%DATADIR%%" >> "test_install\gymcli.bat"
+	@echo ..\$(BIN_TARGET) >> "test_install\gymcli.bat"
+else
+	mkdir -p test_install/bin test_install/data
+	cp $(TARGET) test_install/bin/$(BIN_TARGET)
+	echo '#!/bin/bash' > test_install/bin/gymcli
+	echo 'SCRIPT_DIR="$$(cd "$$(dirname "$$0")" && pwd)"' >> test_install/bin/gymcli
+	echo 'DATA_DIR="$$SCRIPT_DIR/../data"' >> test_install/bin/gymcli
+	echo 'cd "$$DATA_DIR" && exec "$$SCRIPT_DIR/$(BIN_TARGET)"' >> test_install/bin/gymcli
+	chmod +x test_install/bin/gymcli
+endif
+	@echo Test environment created: ./test_install/bin/gymcli
+
+.PHONY: all clean install uninstall run devinstall
+
