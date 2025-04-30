@@ -1,0 +1,273 @@
+#include "GymDatabse.h"
+#include "Utils.h"
+#include <fstream>
+#include <iostream>
+#include <algorithm>
+
+GymDatabase::GymDatabase(const std::string& filename, const std::string& routinesFile)
+    : dbFilename(filename), routinesFilename(routinesFile), activeRoutineIndex(-1) {
+    loadFromFile();
+    loadRoutinesFromFile();
+
+    // If no routines exist, create a default one
+    if (routines.empty()) {
+        WorkoutRoutine defaultRoutine("Default Routine");
+        defaultRoutine.assignDayToBodyPart("Monday", BodyPart::UPPER);
+        defaultRoutine.assignDayToBodyPart("Tuesday", BodyPart::LOWER);
+        defaultRoutine.assignDayToBodyPart("Wednesday", BodyPart::FULL);
+        defaultRoutine.assignDayToBodyPart("Thursday", BodyPart::UPPER);
+        defaultRoutine.assignDayToBodyPart("Friday", BodyPart::LOWER);
+        defaultRoutine.assignDayToBodyPart("Saturday", BodyPart::FULL);
+        defaultRoutine.assignDayToBodyPart("Sunday", BodyPart::OTHER);  // Rest day
+
+        routines.push_back(defaultRoutine);
+        activeRoutineIndex = 0;
+        saveRoutinesToFile();
+    }
+
+    // If no active routine is set, use the first one
+    if (activeRoutineIndex == -1 && !routines.empty()) {
+        activeRoutineIndex = 0;
+    }
+}
+
+void GymDatabase::addExercise(const Exercise& exercise) {
+    exercises.push_back(exercise);
+    saveToFile();
+}
+
+const std::vector<Exercise>& GymDatabase::getAllExercises() const {
+    return exercises;
+}
+
+std::vector<Exercise> GymDatabase::getExercisesByName(const std::string& name) const {
+    std::vector<Exercise> result;
+    for (const auto& exercise : exercises) {
+        if (containsIgnoreCase(exercise.getName(), name)) {
+            result.push_back(exercise);
+        }
+    }
+    return result;
+}
+
+std::vector<Exercise> GymDatabase::getExercisesByCategory(const std::string& category) const {
+    std::vector<Exercise> result;
+    for (const auto& exercise : exercises) {
+        if (containsIgnoreCase(exercise.getCategory(), category)) {
+            result.push_back(exercise);
+        }
+    }
+    return result;
+}
+
+std::map<std::string, std::vector<Exercise>> GymDatabase::getSessionMap() const {
+    std::map<std::string, std::vector<Exercise>> result;
+    for (const auto& exercise : exercises) {
+        result[exercise.getDate()].push_back(exercise);
+    }
+    return result;
+}
+
+std::vector<Exercise> GymDatabase::getExercisesByDay(const std::string& dayOfWeek) const {
+    std::vector<Exercise> result;
+    for (const auto& exercise : exercises) {
+        // Use the getDayOfWeek function from Utils.h
+        std::string exerciseDay = getDayOfWeek(exercise.getDate());
+        if (equalsIgnoreCase(exerciseDay, dayOfWeek)) {
+            result.push_back(exercise);
+        }
+    }
+    return result;
+}
+
+std::vector<Exercise> GymDatabase::getExercisesByBodyPart(BodyPart bodyPart) const {
+    std::vector<Exercise> result;
+    for (const auto& exercise : exercises) {
+        if (exercise.getBodyPart() == bodyPart) {
+            result.push_back(exercise);
+        }
+    }
+    return result;
+}
+
+std::vector<Exercise> GymDatabase::getExercisesByRoutine(const std::string& routineName) const {
+    std::vector<Exercise> result;
+    for (const auto& exercise : exercises) {
+        if (equalsIgnoreCase(exercise.getRoutineName(), routineName)) {
+            result.push_back(exercise);
+        }
+    }
+    return result;
+}
+
+std::map<std::string, double> GymDatabase::getProgressData(const std::string& exerciseName) const {
+    std::map<std::string, double> result;
+    for (const auto& exercise : exercises) {
+        if (exercise.getName() == exerciseName) {
+            // Find the maximum weight used in this exercise
+            double maxWeight = 0;
+            for (const auto& weight : exercise.getWeights()) {
+                maxWeight = std::max(maxWeight, weight);
+            }
+            result[exercise.getDate()] = maxWeight;
+        }
+    }
+    return result;
+}
+
+void GymDatabase::addRoutine(const WorkoutRoutine& routine) {
+    routines.push_back(routine);
+
+    // If this is the first routine, make it active
+    if (routines.size() == 1) {
+        activeRoutineIndex = 0;
+    }
+
+    saveRoutinesToFile();
+}
+
+bool GymDatabase::updateRoutine(size_t index, const WorkoutRoutine& routine) {
+    if (index >= routines.size()) {
+        return false;
+    }
+
+    routines[index] = routine;
+    saveRoutinesToFile();
+    return true;
+}
+
+bool GymDatabase::deleteRoutine(size_t index) {
+    if (index >= routines.size()) {
+        return false;
+    }
+
+    routines.erase(routines.begin() + index);
+
+    // Update active routine index if needed
+    if (routines.empty()) {
+        activeRoutineIndex = -1;
+    } else if (activeRoutineIndex == static_cast<int>(index)) {
+        activeRoutineIndex = 0;  // Default to first routine
+    } else if (activeRoutineIndex > static_cast<int>(index)) {
+        activeRoutineIndex--;  // Adjust index
+    }
+
+    saveRoutinesToFile();
+    return true;
+}
+
+const std::vector<WorkoutRoutine>& GymDatabase::getAllRoutines() const {
+    return routines;
+}
+
+const WorkoutRoutine* GymDatabase::getActiveRoutine() const {
+    if (activeRoutineIndex >= 0 && activeRoutineIndex < static_cast<int>(routines.size())) {
+        return &routines[activeRoutineIndex];
+    }
+    return nullptr;
+}
+
+bool GymDatabase::setActiveRoutine(size_t index) {
+    if (index >= routines.size()) {
+        return false;
+    }
+
+    activeRoutineIndex = static_cast<int>(index);
+    saveRoutinesToFile();
+    return true;
+}
+
+BodyPart GymDatabase::getBodyPartForToday() const {
+    std::string todayDay = getCurrentDayOfWeek();
+    return getBodyPartForDay(todayDay);
+}
+
+BodyPart GymDatabase::getBodyPartForDay(const std::string& day) const {
+    if (activeRoutineIndex >= 0 && activeRoutineIndex < static_cast<int>(routines.size())) {
+        return routines[activeRoutineIndex].getBodyPartForDay(day);
+    }
+    return BodyPart::OTHER;  // Default
+}
+
+void GymDatabase::saveToFile() const {
+    std::ofstream file(dbFilename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file for writing: " << dbFilename << std::endl;
+        return;
+    }
+
+    for (const auto& exercise : exercises) {
+        file << exercise.serialize() << std::endl;
+    }
+
+    file.close();
+}
+
+void GymDatabase::loadFromFile() {
+    exercises.clear();
+
+    std::ifstream file(dbFilename);
+    if (!file.is_open()) {
+        // File doesn't exist yet, which is fine for a new database
+        return;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        if (!line.empty()) {
+            exercises.push_back(Exercise::deserialize(line));
+        }
+    }
+
+    file.close();
+}
+
+// Routine file I/O
+void GymDatabase::saveRoutinesToFile() const {
+    std::ofstream file(routinesFilename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open routines file for writing: " << routinesFilename << std::endl;
+        return;
+    }
+
+    // Save active routine index
+    file << activeRoutineIndex << std::endl;
+
+    // Save routines
+    for (const auto& routine : routines) {
+        file << routine.serialize() << std::endl;
+    }
+
+    file.close();
+}
+
+void GymDatabase::loadRoutinesFromFile() {
+    routines.clear();
+    activeRoutineIndex = -1;
+
+    std::ifstream file(routinesFilename);
+    if (!file.is_open()) {
+        // File doesn't exist yet, which is fine for a new database
+        return;
+    }
+
+    std::string line;
+
+    // Read active routine index
+    if (std::getline(file, line)) {
+        try {
+            activeRoutineIndex = std::stoi(line);
+        } catch (...) {
+            activeRoutineIndex = -1;
+        }
+    }
+
+    // Read routines
+    while (std::getline(file, line)) {
+        if (!line.empty()) {
+            routines.push_back(WorkoutRoutine::deserialize(line));
+        }
+    }
+
+    file.close();
+}
