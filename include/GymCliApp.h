@@ -30,11 +30,10 @@ private:
     void deleteRoutine();
     void setActiveRoutine();
 
-    // Helper methods for routine editing
+
     void editRoutineName(WorkoutRoutine& routine);
     void editRoutineDayAssignments(WorkoutRoutine& routine);
 
-    // Helper methods for determining body part from category
     BodyPart getCategoryBodyPart(const std::string& category);
     bool isUpperBodyCategory(const std::string& category);
     bool isLowerBodyCategory(const std::string& category);

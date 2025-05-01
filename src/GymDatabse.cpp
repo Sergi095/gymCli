@@ -71,9 +71,8 @@ std::map<std::string, std::vector<Exercise>> GymDatabase::getSessionMap() const 
 std::vector<Exercise> GymDatabase::getExercisesByDay(const std::string& dayOfWeek) const {
     std::vector<Exercise> result;
     for (const auto& exercise : exercises) {
-        // Use the getDayOfWeek function from Utils.h
-        std::string exerciseDay = getDayOfWeek(exercise.getDate());
-        if (equalsIgnoreCase(exerciseDay, dayOfWeek)) {
+        // Directly compare the stored day with the requested day
+        if (equalsIgnoreCase(exercise.getDate(), dayOfWeek)) {
             result.push_back(exercise);
         }
     }

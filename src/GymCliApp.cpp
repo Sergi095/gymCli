@@ -147,7 +147,6 @@ std::string GymCliApp::getCurrentDate() {
 }
 
 std::string GymCliApp::getDateForDayOfWeek(const std::string& dayOfWeek) {
-    // Just return the day of week instead of converting to a date
     return dayOfWeek;
 }
 
@@ -602,16 +601,59 @@ void GymCliApp::viewProgressForExercise() {
     TableRenderer::renderProgressChart(name, progressData);
 }
 
-// Routine management functions
+
+
 void GymCliApp::manageRoutines() {
     bool backToMainMenu = false;
 
     while (!backToMainMenu) {
         displayRoutinesMenu();
 
-        int choice;
-        std::cin >> choice;
+        // Get user choice
+        std::string input;
+        std::getline(std::cin, input);
+        
+        // For empty input (just pressing Enter), show error and continue
+        if (input.empty() || input.find_first_not_of(" \t\n\r") == std::string::npos) {
+            std::cout << "No input provided. Please enter a number." << std::endl;
+            
+            // Give user time to read message
+            std::cout << "Press Enter to continue...";
+            std::string dummy;
+            std::getline(std::cin, dummy);
+            
+            // Clear screen and show menu again
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            continue;
+        }
+        
+        // Try to convert input to an integer
+        int choice = 0;
+        
+        try {
+            choice = std::stoi(input);
+        } catch (const std::exception& e) {
+            std::cout << "Invalid input. Please enter a number." << std::endl;
+            
+            // Give user time to read message
+            std::cout << "Press Enter to continue...";
+            std::string dummy;
+            std::getline(std::cin, dummy);
+            
+            // Clear screen and show menu again
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            continue;
+        }
 
+        // Process valid choice
         switch (choice) {
             case 0:
                 backToMainMenu = true;
@@ -633,14 +675,23 @@ void GymCliApp::manageRoutines() {
                 break;
             default:
                 std::cout << "Invalid choice. Please try again." << std::endl;
+                
+                // Give user time to read message
+                std::cout << "Press Enter to continue...";
+                std::string dummy;
+                std::getline(std::cin, dummy);
+                
+                // Continue to show menu again
+                continue;
         }
 
+        // Only pause if we're not exiting the menu and we've performed a valid operation
         if (!backToMainMenu) {
             std::cout << "\nPress Enter to continue...";
-            std::cin.ignore();
-            std::cin.get();
-
-            // Clear screen (platform-specific)
+            std::string dummy;
+            std::getline(std::cin, dummy);
+            
+            // Clear screen
             #ifdef _WIN32
                 system("cls");
             #else
@@ -895,9 +946,52 @@ void GymCliApp::editRoutineDayAssignments(WorkoutRoutine& routine) {
 void GymCliApp::run() {
     while (running) {
         displayMenu();
-        int choice;
-        std::cin >> choice;
+        
+        // Get user choice
+        std::string input;
+        std::getline(std::cin, input);
+        
+        // For empty input (just pressing Enter), show error and continue
+        if (input.empty() || input.find_first_not_of(" \t\n\r") == std::string::npos) {
+            std::cout << "No input provided. Please enter a number." << std::endl;
+            
+            // Give user time to read message
+            std::cout << "Press Enter to continue...";
+            std::string dummy;
+            std::getline(std::cin, dummy);
+            
+            // Clear screen and show menu again
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            continue;
+        }
+        
+        // Try to convert input to an integer
+        int choice = 0;
+        
+        try {
+            choice = std::stoi(input);
+        } catch (const std::exception& e) {
+            std::cout << "Invalid input. Please enter a number." << std::endl;
+            
+            // Give user time to read message
+            std::cout << "Press Enter to continue...";
+            std::string dummy;
+            std::getline(std::cin, dummy);
+            
+            // Clear screen and show menu again
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            continue;
+        }
 
+        // Process valid choice
         switch (choice) {
             case 0:
                 running = false;
@@ -930,18 +1024,26 @@ void GymCliApp::run() {
                 viewProgressForExercise();
                 break;
             case 10:
-                manageRoutines();
+                manageRoutines();  // No cin.ignore needed before this
                 break;
             default:
                 std::cout << "Invalid choice. Please try again." << std::endl;
+                
+                // Give user time to read message
+                std::cout << "Press Enter to continue...";
+                std::string dummy;
+                std::getline(std::cin, dummy);
+                
+                // Continue to show menu again
+                continue;
         }
 
         if (running) {
             std::cout << "\nPress Enter to continue...";
-            std::cin.ignore();
-            std::cin.get();
-
-            // Clear screen (platform-specific)
+            std::string dummy;
+            std::getline(std::cin, dummy);
+            
+            // Clear screen
             #ifdef _WIN32
                 system("cls");
             #else
@@ -950,5 +1052,5 @@ void GymCliApp::run() {
         }
     }
 
-    std::cout << "Thank you for using GymCli. Goodbye!" << std::endl;
+    std::cout << ":p bye fuckers" << std::endl;
 }
