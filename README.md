@@ -40,6 +40,8 @@ make uninstall
 
 The interface is menu-driven with numbered options:
 
+![gymcli](gymcli.jpg)
+
 1. Add new exercise - Record your workout data
 2. View all exercises - See everything you've done
 3. View exercises by category - Filter by muscle group
