@@ -148,37 +148,31 @@ std::string Exercise::serialize() const {
     return result;
 }
 
+
+
+
 Exercise Exercise::deserialize(const std::string& data) {
     size_t pos = 0;
     size_t nextPos = data.find("|", pos);
 
-    if (nextPos == std::string::npos) {
-        return Exercise(); // Return default exercise if data format is invalid
-    }
+    if (nextPos == std::string::npos) return Exercise();
 
     std::string name = data.substr(pos, nextPos - pos);
 
     pos = nextPos + 1;
     nextPos = data.find("|", pos);
-
-    if (nextPos == std::string::npos) {
-        return Exercise(name); // Return exercise with just the name
-    }
+    if (nextPos == std::string::npos) return Exercise(name);
 
     std::string category = data.substr(pos, nextPos - pos);
 
     pos = nextPos + 1;
     nextPos = data.find("|", pos);
-
-    if (nextPos == std::string::npos) {
-        return Exercise(name, category); // Return exercise with name and category
-    }
+    if (nextPos == std::string::npos) return Exercise(name, category);
 
     std::string date = data.substr(pos, nextPos - pos);
 
     pos = nextPos + 1;
     nextPos = data.find("|", pos);
-
     if (nextPos == std::string::npos) {
         Exercise ex(name, category);
         ex.setDate(date);
@@ -189,7 +183,6 @@ Exercise Exercise::deserialize(const std::string& data) {
 
     pos = nextPos + 1;
     nextPos = data.find("|", pos);
-
     if (nextPos == std::string::npos) {
         Exercise ex(name, category);
         ex.setDate(date);
@@ -202,7 +195,6 @@ Exercise Exercise::deserialize(const std::string& data) {
 
     pos = nextPos + 1;
     nextPos = data.find("|", pos);
-
     if (nextPos == std::string::npos) {
         Exercise ex(name, category, type);
         ex.setDate(date);
@@ -210,18 +202,23 @@ Exercise Exercise::deserialize(const std::string& data) {
         return ex;
     }
 
-    // Parse body part
-    int bodyPartInt = 0;
-    try {
-        bodyPartInt = std::stoi(data.substr(pos, nextPos - pos));
-    } catch (...) {
-        bodyPartInt = 3; // Default to OTHER
+    // Parse body part (supports string and numeric)
+    std::string bpStr = data.substr(pos, nextPos - pos);
+    BodyPart bodyPart;
+    if (bpStr == "UPPER") bodyPart = BodyPart::UPPER;
+    else if (bpStr == "LOWER") bodyPart = BodyPart::LOWER;
+    else if (bpStr == "FULL") bodyPart = BodyPart::FULL;
+    else {
+        try {
+            int bodyPartInt = std::stoi(bpStr);
+            bodyPart = static_cast<BodyPart>(bodyPartInt);
+        } catch (...) {
+            bodyPart = BodyPart::OTHER;
+        }
     }
-    BodyPart bodyPart = static_cast<BodyPart>(bodyPartInt);
 
     pos = nextPos + 1;
     nextPos = data.find("|", pos);
-
     if (nextPos == std::string::npos) {
         Exercise ex(name, category, type, bodyPart);
         ex.setDate(date);
@@ -229,16 +226,13 @@ Exercise Exercise::deserialize(const std::string& data) {
         return ex;
     }
 
-    // Parse routine name
     std::string routineName = data.substr(pos, nextPos - pos);
 
-    // Create the exercise with all parsed data
     Exercise ex(name, category, type, bodyPart);
     ex.setDate(date);
     ex.setNotes(notes);
     ex.setRoutineName(routineName);
 
-    // Parse sets data
     pos = nextPos + 1;
     std::string setsData = data.substr(pos);
 
@@ -248,54 +242,38 @@ Exercise Exercise::deserialize(const std::string& data) {
     while ((nextSetPos = setsData.find(";", setPos)) != std::string::npos) {
         std::string setData = setsData.substr(setPos, nextSetPos - setPos);
         size_t commaPos = setData.find(",");
-
         if (commaPos != std::string::npos) {
-            int val = 0;
-            double weight = 0;
-
             try {
-                val = std::stoi(setData.substr(0, commaPos));
-                weight = std::stod(setData.substr(commaPos + 1));
+                int val = std::stoi(setData.substr(0, commaPos));
+                double weight = std::stod(setData.substr(commaPos + 1));
+                if (type == MeasurementType::REPS)
+                    ex.addRepSet(val, weight);
+                else
+                    ex.addTimeSet(val, weight);
             } catch (...) {
-                // Skip this set if data is invalid
-                setPos = nextSetPos + 1;
-                continue;
-            }
-
-            if (type == MeasurementType::REPS) {
-                ex.addRepSet(val, weight);
-            } else {
-                ex.addTimeSet(val, weight);
+                // skip invalid set
             }
         }
-
         setPos = nextSetPos + 1;
     }
 
-    // Handle last set or single set
     if (setPos < setsData.length()) {
         std::string setData = setsData.substr(setPos);
         size_t commaPos = setData.find(",");
-
         if (commaPos != std::string::npos) {
-            int val = 0;
-            double weight = 0;
-
             try {
-                val = std::stoi(setData.substr(0, commaPos));
-                weight = std::stod(setData.substr(commaPos + 1));
+                int val = std::stoi(setData.substr(0, commaPos));
+                double weight = std::stod(setData.substr(commaPos + 1));
+                if (type == MeasurementType::REPS)
+                    ex.addRepSet(val, weight);
+                else
+                    ex.addTimeSet(val, weight);
             } catch (...) {
-                // Skip this set if data is invalid
-                return ex;
-            }
-
-            if (type == MeasurementType::REPS) {
-                ex.addRepSet(val, weight);
-            } else {
-                ex.addTimeSet(val, weight);
+                // skip invalid last set
             }
         }
     }
 
     return ex;
 }
+

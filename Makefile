@@ -83,7 +83,8 @@ ifeq ($(DETECTED_OS),Windows)
 else
 	@echo Uninstalling from $(DETECTED_OS)...
 	sudo rm -f "$(SYSTEM_BIN)/$(BIN_TARGET)" "$(SYSTEM_BIN)/gymcli"
-	@echo "To delete data, remove $(INSTALL_DIR) manually if desired."
+	@echo "removing data: sudo rm -rf $(INSTALL_DIR)"
+	sudo rm -rf $(INSTALL_DIR)
 endif
 
 run: $(TARGET)

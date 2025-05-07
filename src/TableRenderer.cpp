@@ -90,8 +90,8 @@ void TableRenderer::renderExerciseList(const std::vector<Exercise>& exercises) {
               << std::setw(12) << "Day"
               << std::setw(15) << "Body Part"
               << std::setw(15) << "Routine" // Added routine column
-              << std::setw(7) << "Sets"
-              << std::setw(10) << "Volume" << std::endl;
+              << std::setw(6) << "Sets"
+              << std::setw(6) << "Volume" << std::endl;
     std::cout << std::string(totalWidth, '-') << std::endl;
 
     for (size_t i = 0; i < exercises.size(); i++) {
@@ -106,7 +106,7 @@ void TableRenderer::renderExerciseList(const std::vector<Exercise>& exercises) {
                   << std::setw(15) << exercises[i].getBodyPartString()
                   << std::setw(15) << exercises[i].getRoutineName().substr(0, 13) // Display routine name
                   << std::setw(7) << exercises[i].getSets().size()
-                  << std::setw(10) << std::fixed << std::setprecision(1) << exercises[i].calculateVolume()
+                  << std::setw(7) << std::fixed << std::setprecision(1) << exercises[i].calculateVolume()
                   << std::endl;
     }
 
@@ -128,7 +128,7 @@ void TableRenderer::renderSessionList(const std::map<std::string, std::vector<Ex
               << std::setw(30) << "Body Parts"
               << std::setw(15) << "Routines" // Added routines column
               << std::setw(10) << "Sets"
-              << std::setw(10) << "Volume" << std::endl;
+              << std::setw(7) << "Volume" << std::endl;
     std::cout << std::string(totalWidth, '-') << std::endl;
 
     // For each date
