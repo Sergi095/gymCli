@@ -211,7 +211,12 @@ Exercise Exercise::deserialize(const std::string& data) {
     else {
         try {
             int bodyPartInt = std::stoi(bpStr);
-            bodyPart = static_cast<BodyPart>(bodyPartInt);
+            if (bodyPartInt < static_cast<int>(BodyPart::UPPER) ||
+                bodyPartInt > static_cast<int>(BodyPart::OTHER)) {
+                bodyPart = BodyPart::OTHER;
+            } else {
+                bodyPart = static_cast<BodyPart>(bodyPartInt);
+            }
         } catch (...) {
             bodyPart = BodyPart::OTHER;
         }
@@ -276,4 +281,3 @@ Exercise Exercise::deserialize(const std::string& data) {
 
     return ex;
 }
-

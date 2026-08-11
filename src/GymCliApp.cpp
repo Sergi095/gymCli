@@ -1,1056 +1,744 @@
 #include "GymCliApp.h"
 #include "TableRenderer.h"
-#include <iostream>    // For cout, cin, endl
-#include <iomanip>     // For setw, left, put_time
-#include <algorithm>   // For std::transform
-#include <limits>      // For numeric_limits
-#include <cctype>      // For ::tolower, toupper
-#include <map>         // For std::map
-#include <sstream>     // For std::ostringstream
-#include <chrono>      // For std::chrono
-#include <ctime>       // For std::time_t, std::localtime
-#include <vector>      // For std::vector
+#include "Utils.h"
+#include <iostream>
+#include <iomanip>
+#include <algorithm>
+#include <limits>
+#include <cctype>
+#include <sstream>
+#include <iterator>
+
+namespace {
+
+const int NO_DEFAULT = std::numeric_limits<int>::min();
+
+std::string shortened(const std::string& value, size_t width) {
+    if (value.size() <= width) {
+        return value;
+    }
+    if (width <= 3) {
+        return value.substr(0, width);
+    }
+    return value.substr(0, width - 3) + "...";
+}
+
+std::string storedText(const std::string& value) {
+    std::string result = trim(value);
+    std::replace(result.begin(), result.end(), '|', '/');
+    return result;
+}
+
+bool promptLine(const std::string& prompt, std::string& value) {
+    std::cout << prompt;
+    if (!std::getline(std::cin, value)) {
+        return false;
+    }
+    value = trim(value);
+    return true;
+}
+
+bool parseInt(const std::string& value, int& result) {
+    std::istringstream input(value);
+    char trailing = '\0';
+    return (input >> result) && !(input >> trailing);
+}
+
+bool parseDouble(const std::string& value, double& result) {
+    std::istringstream input(value);
+    char trailing = '\0';
+    return (input >> result) && !(input >> trailing);
+}
+
+bool promptInt(const std::string& prompt, int minimum, int maximum,
+               int& result, int defaultValue = NO_DEFAULT) {
+    while (true) {
+        std::string value;
+        if (!promptLine(prompt, value)) {
+            return false;
+        }
+        if (value.empty() && defaultValue != NO_DEFAULT) {
+            result = defaultValue;
+            return true;
+        }
+        if (parseInt(value, result) && result >= minimum && result <= maximum) {
+            return true;
+        }
+        std::cout << "Please enter a number from " << minimum << " to " << maximum << ".\n";
+    }
+}
+
+bool promptDouble(const std::string& prompt, double minimum, double maximum,
+                  double& result, double defaultValue) {
+    while (true) {
+        std::string value;
+        if (!promptLine(prompt, value)) {
+            return false;
+        }
+        if (value.empty()) {
+            result = defaultValue;
+            return true;
+        }
+        if (parseDouble(value, result) && result >= minimum && result <= maximum) {
+            return true;
+        }
+        std::cout << "Please enter a value from " << minimum << " to " << maximum << ".\n";
+    }
+}
+
+bool promptChoice(const std::string& prompt, const std::string& allowed,
+                  char& result, char defaultValue = '\0') {
+    while (true) {
+        std::string value;
+        if (!promptLine(prompt, value)) {
+            return false;
+        }
+        if (value.empty() && defaultValue != '\0') {
+            result = static_cast<char>(std::toupper(static_cast<unsigned char>(defaultValue)));
+            return true;
+        }
+        if (value.size() == 1) {
+            const char choice = static_cast<char>(std::toupper(static_cast<unsigned char>(value[0])));
+            if (allowed.find(choice) != std::string::npos) {
+                result = choice;
+                return true;
+            }
+        }
+        std::cout << "Choose one of: " << allowed << ".\n";
+    }
+}
+
+bool promptYesNo(const std::string& prompt, bool defaultValue, bool& result) {
+    char choice = '\0';
+    if (!promptChoice(prompt, "YN", choice, defaultValue ? 'Y' : 'N')) {
+        return false;
+    }
+    result = choice == 'Y';
+    return true;
+}
+
+bool promptRequired(const std::string& prompt, std::string& result) {
+    while (true) {
+        if (!promptLine(prompt, result)) {
+            return false;
+        }
+        result = storedText(result);
+        if (!result.empty()) {
+            return true;
+        }
+        std::cout << "This field cannot be empty.\n";
+    }
+}
+
+bool parseDuration(const std::string& value, int& seconds) {
+    const size_t colon = value.find(':');
+    if (colon == std::string::npos) {
+        return parseInt(value, seconds) && seconds > 0 && seconds <= 86400;
+    }
+    if (value.find(':', colon + 1) != std::string::npos) {
+        return false;
+    }
+
+    int minutes = 0;
+    int remainingSeconds = 0;
+    if (!parseInt(value.substr(0, colon), minutes) ||
+        !parseInt(value.substr(colon + 1), remainingSeconds) ||
+        minutes < 0 || remainingSeconds < 0 || remainingSeconds > 59) {
+        return false;
+    }
+    seconds = minutes * 60 + remainingSeconds;
+    return seconds > 0 && seconds <= 86400;
+}
+
+bool promptDuration(const std::string& prompt, int& seconds) {
+    while (true) {
+        std::string value;
+        if (!promptLine(prompt, value)) {
+            return false;
+        }
+        if (parseDuration(value, seconds)) {
+            return true;
+        }
+        std::cout << "Use seconds or mm:ss (for example, 90 or 1:30).\n";
+    }
+}
+
+std::string bodyPartName(BodyPart bodyPart, bool restLabel = false) {
+    switch (bodyPart) {
+        case BodyPart::UPPER: return "Upper Body";
+        case BodyPart::LOWER: return "Lower Body";
+        case BodyPart::FULL: return "Full Body";
+        default: return restLabel ? "Rest Day" : "Other";
+    }
+}
+
+char bodyPartCode(BodyPart bodyPart) {
+    switch (bodyPart) {
+        case BodyPart::UPPER: return 'U';
+        case BodyPart::LOWER: return 'L';
+        case BodyPart::FULL: return 'F';
+        default: return 'O';
+    }
+}
+
+BodyPart bodyPartFromCode(char choice) {
+    switch (choice) {
+        case 'U': return BodyPart::UPPER;
+        case 'L': return BodyPart::LOWER;
+        case 'F': return BodyPart::FULL;
+        default: return BodyPart::OTHER;
+    }
+}
+
+void boxLine(const std::string& value, int width) {
+    const std::string content = shortened(value, static_cast<size_t>(width - 4));
+    std::cout << "| " << std::left << std::setw(width - 4) << content << " |\n";
+}
+
+void waitForEnter() {
+    if (!isInteractiveInput()) {
+        return;
+    }
+    std::cout << "\nPress Enter to continue...";
+    std::string ignored;
+    std::getline(std::cin, ignored);
+}
+
+void offerExerciseDetails(const std::vector<Exercise>& exercises) {
+    if (exercises.empty()) {
+        return;
+    }
+    int id = 0;
+    if (promptInt("View exercise ID [0 to return]: ", 0,
+                  static_cast<int>(exercises.size()), id, 0) && id > 0) {
+        TableRenderer::renderExercise(exercises[static_cast<size_t>(id - 1)]);
+    }
+}
+
+} // namespace
 
 GymCliApp::GymCliApp() : running(true) {}
 
 void GymCliApp::displayMenu() {
-    int width = 45;
-    std::cout << std::string(width, '*') << std::endl;
-    std::cout << "*" << std::setw(width - 2) << std::left << " GYM CLI - MAIN MENU" << "*" << std::endl;
-    std::cout << "*" << std::setw(width - 2) << std::left << " Today is " + getCurrentDayOfWeek() << "*" << std::endl;
-
-    // Display today's workout based on active routine
-    BodyPart todayBodyPart = db.getBodyPartForToday();
-    std::string bodyPartStr;
-
-    switch(todayBodyPart) {
-        case BodyPart::UPPER: bodyPartStr = "Upper Body"; break;
-        case BodyPart::LOWER: bodyPartStr = "Lower Body"; break;
-        case BodyPart::FULL: bodyPartStr = "Full Body"; break;
-        default: bodyPartStr = "Rest Day"; break;
-    }
-
-    std::cout << "*" << std::setw(width - 2) << std::left << " Today's Workout: " + bodyPartStr << "*" << std::endl;
-
-    // Display active routine name
+    const int width = std::min(getTerminalWidth(), 60);
     const WorkoutRoutine* activeRoutine = db.getActiveRoutine();
-    if (activeRoutine) {
-        std::cout << "*" << std::setw(width - 2) << std::left << " Active Routine: " + activeRoutine->getName() << "*" << std::endl;
+
+    std::cout << '\n' << std::string(width, '=') << '\n';
+    boxLine("GYMCLI", width);
+    boxLine(::getCurrentDate() + " - " + ::getCurrentDayOfWeek(), width);
+    boxLine("Today: " + bodyPartName(db.getBodyPartForToday(), true), width);
+    if (activeRoutine != nullptr) {
+        boxLine("Routine: " + activeRoutine->getName(), width);
     }
-
-    std::cout << std::string(width, '*') << std::endl;
-    std::cout << "1. Add new exercise" << std::endl;
-    std::cout << "2. View all exercises" << std::endl;
-    std::cout << "3. View exercises by category" << std::endl;
-    std::cout << "4. View exercises by name" << std::endl;
-    std::cout << "5. View exercises by day of week" << std::endl;
-    std::cout << "6. View exercises by body part (upper/lower)" << std::endl;
-    std::cout << "7. View exercises by routine" << std::endl;
-    std::cout << "8. View workout sessions by date" << std::endl;
-    std::cout << "9. View progress for an exercise" << std::endl;
-    std::cout << "10. Manage workout routines" << std::endl;
-    std::cout << "0. Exit" << std::endl;
-    std::cout << std::string(width, '*') << std::endl;
-    std::cout << "Enter your choice: ";
-}
-
-// Helper functions for string processing and categorization
-bool GymCliApp::containsIgnoreCase(const std::string& str, const std::string& substr) {
-    std::string strLower = str;
-    std::string substrLower = substr;
-    
-    // Convert both strings to lowercase
-    std::transform(strLower.begin(), strLower.end(), strLower.begin(), 
-                   [](unsigned char c) { return std::tolower(c); });
-    std::transform(substrLower.begin(), substrLower.end(), substrLower.begin(), 
-                   [](unsigned char c) { return std::tolower(c); });
-    
-    // Check if strLower contains substrLower
-    return strLower.find(substrLower) != std::string::npos;
+    std::cout << std::string(width, '=') << "\n\n";
+    std::cout << "Workout\n"
+              << "  [1] Log an exercise\n"
+              << "  [2] Exercise history\n"
+              << "  [8] Sessions by date\n"
+              << "  [9] Exercise progress\n\n"
+              << "Find\n"
+              << "  [3] By category\n"
+              << "  [4] By exercise name\n"
+              << "  [5] By weekday\n"
+              << "  [6] By body part\n"
+              << "  [7] By routine\n\n"
+              << "Setup\n"
+              << "  [10] Manage routines\n"
+              << "  [0] Exit\n\n";
 }
 
 bool GymCliApp::isUpperBodyCategory(const std::string& category) {
-    return containsIgnoreCase(category, "chest") ||
-           containsIgnoreCase(category, "back") ||
-           containsIgnoreCase(category, "shoulder") ||
-           containsIgnoreCase(category, "arm") ||
-           containsIgnoreCase(category, "bicep") ||
-           containsIgnoreCase(category, "tricep") ||
-           containsIgnoreCase(category, "push") ||
-           containsIgnoreCase(category, "pull") ||
-           containsIgnoreCase(category, "press") ||
-           containsIgnoreCase(category, "curl") ||
-           containsIgnoreCase(category, "delt") ||
-           containsIgnoreCase(category, "trap") ||
-           containsIgnoreCase(category, "lats") ||
-           containsIgnoreCase(category, "upper");
+    const std::vector<std::string> keywords = {
+        "chest", "back", "shoulder", "arm", "bicep", "tricep", "push",
+        "pull", "press", "curl", "delt", "trap", "lat", "upper"
+    };
+    for (const auto& keyword : keywords) {
+        if (::containsIgnoreCase(category, keyword)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool GymCliApp::isLowerBodyCategory(const std::string& category) {
-    return containsIgnoreCase(category, "leg") ||
-           containsIgnoreCase(category, "quad") ||
-           containsIgnoreCase(category, "hamstring") ||
-           containsIgnoreCase(category, "calf") ||
-           containsIgnoreCase(category, "calves") ||
-           containsIgnoreCase(category, "glute") ||
-           containsIgnoreCase(category, "squat") ||
-           containsIgnoreCase(category, "deadlift") ||
-           containsIgnoreCase(category, "lunge") ||
-           containsIgnoreCase(category, "hip") ||
-           containsIgnoreCase(category, "thigh") ||
-           containsIgnoreCase(category, "knee") ||
-           containsIgnoreCase(category, "lower");
+    const std::vector<std::string> keywords = {
+        "leg", "quad", "hamstring", "calf", "calves", "glute", "squat",
+        "deadlift", "lunge", "hip", "thigh", "knee", "lower"
+    };
+    for (const auto& keyword : keywords) {
+        if (::containsIgnoreCase(category, keyword)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 BodyPart GymCliApp::getCategoryBodyPart(const std::string& category) {
     if (isUpperBodyCategory(category)) {
         return BodyPart::UPPER;
-    } else if (isLowerBodyCategory(category)) {
-        return BodyPart::LOWER;
-    } else if (containsIgnoreCase(category, "full") ||
-              containsIgnoreCase(category, "cardio") ||
-              containsIgnoreCase(category, "core") ||
-              containsIgnoreCase(category, "abs") ||
-              containsIgnoreCase(category, "hiit") ||
-              containsIgnoreCase(category, "circuit") ||
-              containsIgnoreCase(category, "functional")) {
-        return BodyPart::FULL;
-    } else {
-        return BodyPart::OTHER;
     }
+    if (isLowerBodyCategory(category)) {
+        return BodyPart::LOWER;
+    }
+    const std::vector<std::string> fullBodyKeywords = {
+        "full", "cardio", "core", "abs", "hiit", "circuit", "functional"
+    };
+    for (const auto& keyword : fullBodyKeywords) {
+        if (::containsIgnoreCase(category, keyword)) {
+            return BodyPart::FULL;
+        }
+    }
+    return BodyPart::OTHER;
 }
 
-// Helper functions for time and date
 std::vector<std::string> GymCliApp::getDaysOfWeek() {
     return {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
 }
 
-std::string GymCliApp::getCurrentDayOfWeek() {
-    auto now = std::chrono::system_clock::now();
-    std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-    std::tm today_tm = *std::localtime(&now_time);
-    
-    std::vector<std::string> days = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
-    int dayIndex = today_tm.tm_wday; // 0 = Sunday
-    
-    return days[dayIndex];
-}
-
-std::string GymCliApp::getCurrentDate() {
-    auto now = std::chrono::system_clock::now();
-    std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-    std::tm today_tm = *std::localtime(&now_time);
-    
-    std::ostringstream oss;
-    oss << std::put_time(&today_tm, "%Y-%m-%d");
-    return oss.str();
-}
-
-std::string GymCliApp::getDateForDayOfWeek(const std::string& dayOfWeek) {
-    return dayOfWeek;
-}
-
-// Main exercise management functions
 void GymCliApp::addNewExercise() {
-    std::string name, category, notes;
+    std::cout << "\nLog an exercise\n----------------\n";
 
-    std::cout << "Enter exercise name: ";
-    std::cin.ignore();
-    std::getline(std::cin, name);
+    std::string name;
+    std::string category;
+    if (!promptRequired("Exercise name: ", name) ||
+        !promptRequired("Category (Chest, Back, Legs, ...): ", category)) {
+        return;
+    }
 
-    // Get category first, to determine body part
-    std::cout << "Enter category (e.g., Chest, Back, Legs): ";
-    std::getline(std::cin, category);
-
-    // Determine body part based on category
     BodyPart exerciseBodyPart = getCategoryBodyPart(category);
-    
-    // Display detected body part
-    std::string bodyPartStr;
-    switch (exerciseBodyPart) {
-        case BodyPart::UPPER: bodyPartStr = "Upper Body (U)"; break;
-        case BodyPart::LOWER: bodyPartStr = "Lower Body (L)"; break;
-        case BodyPart::FULL: bodyPartStr = "Full Body (F)"; break;
-        default: bodyPartStr = "Other (O)"; break;
+    const char detectedCode = bodyPartCode(exerciseBodyPart);
+    char bodyChoice = detectedCode;
+    const std::string bodyPrompt = "Body part [U/L/F/O, default " +
+                                   std::string(1, detectedCode) + "]: ";
+    if (!promptChoice(bodyPrompt, "ULFO", bodyChoice, detectedCode)) {
+        return;
     }
-    
-    std::cout << "Detected body part: " << bodyPartStr << std::endl;
-    
-    // Confirm or change body part
-    char bodyPartChoice;
-    std::cout << "Is this correct? [Y/n]: ";
-    std::string choiceStr;
-    std::getline(std::cin, choiceStr);
-    bodyPartChoice = choiceStr.empty() ? 'Y' : toupper(choiceStr[0]);
-    
-    if (bodyPartChoice != 'Y') {
-        std::cout << "Select body part [U/L/F/O]: ";
-        std::getline(std::cin, choiceStr);
-        char selection = choiceStr.empty() ? 'U' : toupper(choiceStr[0]);
-        
-        switch (selection) {
-            case 'U': exerciseBodyPart = BodyPart::UPPER; break;
-            case 'L': exerciseBodyPart = BodyPart::LOWER; break;
-            case 'F': exerciseBodyPart = BodyPart::FULL; break;
-            default: exerciseBodyPart = BodyPart::OTHER; break;
+    exerciseBodyPart = bodyPartFromCode(bodyChoice);
+
+    const std::string today = ::getCurrentDate();
+    std::string workoutDate;
+    while (true) {
+        if (!promptLine("Workout date [" + today + "]: ", workoutDate)) {
+            return;
         }
-        
-        switch (exerciseBodyPart) {
-            case BodyPart::UPPER: bodyPartStr = "Upper Body"; break;
-            case BodyPart::LOWER: bodyPartStr = "Lower Body"; break;
-            case BodyPart::FULL: bodyPartStr = "Full Body"; break;
-            default: bodyPartStr = "Other"; break;
+        if (workoutDate.empty()) {
+            workoutDate = today;
         }
-        
-        std::cout << "Body part set to: " << bodyPartStr << std::endl;
+        if (isValidDate(workoutDate)) {
+            break;
+        }
+        std::cout << "Enter a real date in YYYY-MM-DD format.\n";
     }
-    
-    // Check if we have an active routine
+
     const WorkoutRoutine* activeRoutine = db.getActiveRoutine();
-    std::string chosenDay;
-    
-    if (activeRoutine) {
-        // Find days that match this body part in the routine
-        std::vector<std::string> matchingDays;
-        for (const std::string& day : getDaysOfWeek()) {
-            if (activeRoutine->getBodyPartForDay(day) == exerciseBodyPart) {
-                matchingDays.push_back(day);
-            }
+    std::string routineName;
+    if (activeRoutine != nullptr) {
+        const std::string workoutDay = getDayOfWeek(workoutDate);
+        const BodyPart plannedBodyPart = db.getBodyPartForDay(workoutDay);
+        std::cout << "Scheduled for " << workoutDay << ": "
+                  << bodyPartName(plannedBodyPart, true) << ".\n";
+        if (plannedBodyPart != BodyPart::OTHER && plannedBodyPart != exerciseBodyPart) {
+            std::cout << "Note: this exercise differs from the routine's scheduled body part.\n";
         }
-        
-        if (!matchingDays.empty()) {
-            std::cout << "Based on your active routine \"" << activeRoutine->getName() 
-                      << "\", this exercise fits on:" << std::endl;
-            
-            for (size_t i = 0; i < matchingDays.size(); i++) {
-                std::cout << (i+1) << ". " << matchingDays[i] << std::endl;
-            }
-            
-            int dayChoice = 0;
-            if (matchingDays.size() > 1) {
-                std::cout << "Select day (1-" << matchingDays.size() << "): ";
-                std::string choiceStr;
-                std::getline(std::cin, choiceStr);
-                try {
-                    dayChoice = std::stoi(choiceStr);
-                    if (dayChoice < 1 || dayChoice > static_cast<int>(matchingDays.size())) {
-                        dayChoice = 1; // Default to first matching day
-                    }
-                } catch (...) {
-                    dayChoice = 1; // Default to first matching day
-                }
-            } else {
-                dayChoice = 1; // Only one matching day
-            }
-            
-            chosenDay = matchingDays[dayChoice - 1];
-        } else {
-            std::cout << "No matching days found in your active routine for this body part." << std::endl;
-            std::cout << "Available days in your routine:" << std::endl;
-            
-            // Display all days in the routine with their body parts
-            for (const std::string& day : getDaysOfWeek()) {
-                BodyPart bp = activeRoutine->getBodyPartForDay(day);
-                std::string bpStr;
-                switch (bp) {
-                    case BodyPart::UPPER: bpStr = "Upper Body"; break;
-                    case BodyPart::LOWER: bpStr = "Lower Body"; break;
-                    case BodyPart::FULL: bpStr = "Full Body"; break;
-                    default: bpStr = "Rest Day"; break;
-                }
-                std::cout << "  - " << day << ": " << bpStr << std::endl;
-            }
-            
-            // Let user choose a day manually
-            std::cout << "Enter day to assign (e.g., Monday): ";
-            std::getline(std::cin, chosenDay);
-            std::transform(chosenDay.begin(), chosenDay.end(), chosenDay.begin(), ::tolower);
-            chosenDay[0] = toupper(chosenDay[0]); // Capitalize first letter
+
+        bool associate = true;
+        if (!promptYesNo("Add to routine '" + activeRoutine->getName() + "'? [Y/n]: ",
+                         true, associate)) {
+            return;
         }
-    } else {
-        // No active routine, just use today's date
-        chosenDay = getCurrentDayOfWeek();
-        std::cout << "No active routine found. Using today (" << chosenDay << ")." << std::endl;
-    }
-    
-    std::cout << "Chosen day: " << chosenDay << std::endl;
-
-    std::string routineName = "";
-    if (activeRoutine) {
-        char associateChoice;
-        std::cout << "Associate with active routine \"" << activeRoutine->getName() << "\"? [Y/n]: ";
-        std::string choiceStr;
-        std::getline(std::cin, choiceStr);
-        associateChoice = choiceStr.empty() ? 'Y' : choiceStr[0];
-
-        if (toupper(associateChoice) != 'N') {
+        if (associate) {
             routineName = activeRoutine->getName();
         }
     }
 
-    char typeChoice;
-    std::cout << "Is this a rep-based exercise (R) or time-based exercise (T)? [R/T]: ";
-    std::string typeChoiceStr;
-    std::getline(std::cin, typeChoiceStr);
-    typeChoice = typeChoiceStr.empty() ? 'R' : typeChoiceStr[0];
+    char typeChoice = 'R';
+    if (!promptChoice("Tracking type [R]eps/[T]ime (default R): ", "RT", typeChoice, 'R')) {
+        return;
+    }
+    const MeasurementType measureType = typeChoice == 'T'
+        ? MeasurementType::TIME
+        : MeasurementType::REPS;
 
-    MeasurementType measureType = (toupper(typeChoice) == 'T') ?
-                                  MeasurementType::TIME :
-                                  MeasurementType::REPS;
+    int numberOfSets = 3;
+    if (!promptInt("Number of sets [3]: ", 1, 100, numberOfSets, 3)) {
+        return;
+    }
 
-    // Create exercise with the day of week instead of a date
     Exercise exercise(name, category, measureType, exerciseBodyPart);
-    exercise.setDate(chosenDay);  // Just using the day of week, not actual date
+    exercise.setDate(workoutDate);
     exercise.setRoutineName(routineName);
 
-    int numSets;
-    std::cout << "Enter number of sets: ";
-    std::string numSetsStr;
-    std::getline(std::cin, numSetsStr);
-    try {
-        numSets = std::stoi(numSetsStr);
-    } catch (...) {
-        std::cout << "Invalid number of sets. Setting to 1." << std::endl;
-        numSets = 1;
-    }
-
-    if (numSets <= 0 || numSets > 100) {
-        std::cout << "Invalid number of sets (must be between 1 and 100). Setting to 1." << std::endl;
-        numSets = 1;
-    }
-
-    for (int i = 0; i < numSets; i++) {
-        double weight;
-
+    for (int index = 0; index < numberOfSets; ++index) {
+        std::cout << "\nSet " << (index + 1) << " of " << numberOfSets << '\n';
+        double weight = 0;
         if (measureType == MeasurementType::REPS) {
-            int reps;
-            std::cout << "Set " << (i + 1) << " - Enter reps: ";
-            std::string repsStr;
-            std::getline(std::cin, repsStr);
-            try {
-                reps = std::stoi(repsStr);
-            } catch (...) {
-                reps = 1;
+            int reps = 0;
+            if (!promptInt("  Reps: ", 1, 1000, reps) ||
+                !promptDouble("  Weight in kg [0]: ", 0, 2000, weight, 0)) {
+                return;
             }
-
-            if (reps <= 0 || reps > 1000) reps = 1;
-
-            std::cout << "Set " << (i + 1) << " - Enter weight (kg): ";
-            std::string weightStr;
-            std::getline(std::cin, weightStr);
-            try {
-                weight = std::stod(weightStr);
-            } catch (...) {
-                weight = 0.0;
-            }
-
-            if (weight < 0 || weight > 1000) weight = 0.0;
-
             exercise.addRepSet(reps, weight);
         } else {
-            char timeFormat;
-            std::cout << "Set " << (i + 1) << " - Select time format [S/M]: ";
-            std::string formatStr;
-            std::getline(std::cin, formatStr);
-            timeFormat = formatStr.empty() ? 'S' : formatStr[0];
-
-            int totalSeconds = 0;
-
-            if (toupper(timeFormat) == 'M') {
-                int minutes = 0, seconds = 0;
-
-                std::cout << "Set " << (i + 1) << " - Minutes: ";
-                std::getline(std::cin, formatStr);
-                try { minutes = std::stoi(formatStr); } catch (...) {}
-
-                std::cout << "Set " << (i + 1) << " - Seconds: ";
-                std::getline(std::cin, formatStr);
-                try { seconds = std::stoi(formatStr); } catch (...) {}
-
-                totalSeconds = minutes * 60 + seconds;
-            } else {
-                std::cout << "Set " << (i + 1) << " - Enter total seconds: ";
-                std::getline(std::cin, formatStr);
-                try { totalSeconds = std::stoi(formatStr); } catch (...) {}
+            int seconds = 0;
+            if (!promptDuration("  Duration (seconds or mm:ss): ", seconds) ||
+                !promptDouble("  Weight in kg [0]: ", 0, 2000, weight, 0)) {
+                return;
             }
-
-            if (totalSeconds <= 0 || totalSeconds > 3600) totalSeconds = 1;
-
-            std::cout << "Set " << (i + 1) << " - Enter weight (kg): ";
-            std::string weightStr;
-            std::getline(std::cin, weightStr);
-            try {
-                weight = std::stod(weightStr);
-            } catch (...) {
-                weight = 0.0;
-            }
-
-            if (weight < 0 || weight > 1000) weight = 0.0;
-
-            exercise.addTimeSet(totalSeconds, weight);
+            exercise.addTimeSet(seconds, weight);
         }
     }
 
-    std::cout << "Enter notes (optional): ";
-    std::getline(std::cin, notes);
-    exercise.setNotes(notes);
-
+    std::string notes;
+    if (!promptLine("\nNotes [optional]: ", notes)) {
+        return;
+    }
+    exercise.setNotes(storedText(notes));
     db.addExercise(exercise);
-    std::cout << "Exercise added successfully!" << std::endl;
 
+    std::cout << "\nWorkout saved.\n";
     TableRenderer::renderExercise(exercise);
 }
 
 void GymCliApp::viewAllExercises() {
     const auto& exercises = db.getAllExercises();
     TableRenderer::renderExerciseList(exercises);
-
-    if (!exercises.empty()) {
-        std::cout << "Enter exercise ID to view details (0 to return): ";
-        int id;
-        std::cin >> id;
-
-        if (id > 0 && id <= static_cast<int>(exercises.size())) {
-            TableRenderer::renderExercise(exercises[id - 1]);
-        }
-    }
+    offerExerciseDetails(exercises);
 }
 
 void GymCliApp::viewExercisesByCategory() {
     std::string category;
-    std::cout << "Enter category to view: ";
-    std::cin.ignore();
-    std::getline(std::cin, category);
-
-    const auto& exercises = db.getExercisesByCategory(category);
-    TableRenderer::renderExerciseList(exercises);
-
-    if (!exercises.empty()) {
-        std::cout << "Enter exercise ID to view details (0 to return): ";
-        int id;
-        std::cin >> id;
-
-        if (id > 0 && id <= static_cast<int>(exercises.size())) {
-            TableRenderer::renderExercise(exercises[id - 1]);
-        }
+    if (!promptRequired("Category search: ", category)) {
+        return;
     }
+    const auto exercises = db.getExercisesByCategory(category);
+    TableRenderer::renderExerciseList(exercises);
+    offerExerciseDetails(exercises);
 }
 
 void GymCliApp::viewExercisesByName() {
     std::string name;
-    std::cout << "Enter exercise name to view: ";
-    std::cin.ignore();
-    std::getline(std::cin, name);
-
-    const auto& exercises = db.getExercisesByName(name);
-    TableRenderer::renderExerciseList(exercises);
-
-    if (!exercises.empty()) {
-        std::cout << "Enter exercise ID to view details (0 to return): ";
-        int id;
-        std::cin >> id;
-
-        if (id > 0 && id <= static_cast<int>(exercises.size())) {
-            TableRenderer::renderExercise(exercises[id - 1]);
-        }
+    if (!promptRequired("Exercise name search: ", name)) {
+        return;
     }
+    const auto exercises = db.getExercisesByName(name);
+    TableRenderer::renderExerciseList(exercises);
+    offerExerciseDetails(exercises);
 }
 
 void GymCliApp::viewExercisesByDay() {
-    std::string dayOfWeek;
-    std::cout << "Enter day of week (e.g., Monday, Tuesday): ";
-    std::cin.ignore();
-    std::getline(std::cin, dayOfWeek);
-    
-    // Normalize day input (lowercase with first letter capitalized)
-    if (!dayOfWeek.empty()) {
-        // Convert to lowercase first
-        std::transform(dayOfWeek.begin(), dayOfWeek.end(), dayOfWeek.begin(), 
-                      [](unsigned char c) { return std::tolower(c); });
-        
-        // Capitalize first letter
-        dayOfWeek[0] = std::toupper(dayOfWeek[0]);
+    const auto days = getDaysOfWeek();
+    std::cout << "\nWeekday\n";
+    for (size_t i = 0; i < days.size(); ++i) {
+        std::cout << "  [" << (i + 1) << "] " << days[i] << '\n';
     }
-    
-    // Debug output
-    std::cout << "Searching for exercises on: " << dayOfWeek << std::endl;
-    
-    const auto& exercises = db.getExercisesByDay(dayOfWeek);
-    
-    if (exercises.empty()) {
-        std::cout << "No exercises found for " << dayOfWeek << "." << std::endl;
-    } else {
-        std::cout << "Found " << exercises.size() << " exercise(s) for " << dayOfWeek << ":" << std::endl;
-        TableRenderer::renderExerciseList(exercises);
 
-        std::cout << "Enter exercise ID to view details (0 to return): ";
-        int id;
-        std::cin >> id;
-
-        if (id > 0 && id <= static_cast<int>(exercises.size())) {
-            TableRenderer::renderExercise(exercises[id - 1]);
-        }
+    int dayId = 0;
+    if (!promptInt("Choose weekday [0 to cancel]: ", 0, 7, dayId) || dayId == 0) {
+        return;
     }
+    const auto exercises = db.getExercisesByDay(days[static_cast<size_t>(dayId - 1)]);
+    TableRenderer::renderExerciseList(exercises);
+    offerExerciseDetails(exercises);
 }
 
 void GymCliApp::viewExercisesByBodyPart() {
-    char choice;
-    std::cout << "Select body part:\n"
-              << "U - Upper body\n"
-              << "L - Lower body\n"
-              << "F - Full body\n"
-              << "O - Other\n"
-              << "Choice: ";
-    std::cin >> choice;
-
-    BodyPart bodyPart;
-    switch (toupper(choice)) {
-        case 'U': bodyPart = BodyPart::UPPER; break;
-        case 'L': bodyPart = BodyPart::LOWER; break;
-        case 'F': bodyPart = BodyPart::FULL; break;
-        default:  bodyPart = BodyPart::OTHER; break;
+    char choice = 'U';
+    if (!promptChoice("Body part [U]pper/[L]ower/[F]ull/[O]ther: ", "ULFO", choice)) {
+        return;
     }
-
-    const auto& exercises = db.getExercisesByBodyPart(bodyPart);
+    const auto exercises = db.getExercisesByBodyPart(bodyPartFromCode(choice));
     TableRenderer::renderExerciseList(exercises);
-
-    if (!exercises.empty()) {
-        std::cout << "Enter exercise ID to view details (0 to return): ";
-        int id;
-        std::cin >> id;
-
-        if (id > 0 && id <= static_cast<int>(exercises.size())) {
-            TableRenderer::renderExercise(exercises[id - 1]);
-        }
-    }
+    offerExerciseDetails(exercises);
 }
 
 void GymCliApp::viewExercisesByRoutine() {
     const auto& routines = db.getAllRoutines();
     if (routines.empty()) {
-        std::cout << "No routines found." << std::endl;
+        std::cout << "No routines found.\n";
         return;
     }
 
-    // Display available routines
-    std::cout << "Available routines:" << std::endl;
-    for (size_t i = 0; i < routines.size(); i++) {
-        std::cout << (i + 1) << ". " << routines[i].getName() <<
-                     (db.getActiveRoutine() == &routines[i] ? " (Active)" : "") << std::endl;
+    std::cout << "\nRoutines\n";
+    for (size_t i = 0; i < routines.size(); ++i) {
+        std::cout << "  [" << (i + 1) << "] " << routines[i].getName();
+        if (db.getActiveRoutine() == &routines[i]) {
+            std::cout << " (active)";
+        }
+        std::cout << '\n';
     }
 
-    size_t routineId;
-    std::cout << "Enter routine ID to view exercises (0 to return): ";
-    std::cin >> routineId;
-
-    if (routineId == 0 || routineId > routines.size()) {
+    int routineId = 0;
+    if (!promptInt("Choose routine [0 to cancel]: ", 0,
+                   static_cast<int>(routines.size()), routineId) || routineId == 0) {
         return;
     }
-
-    // Get exercises for the selected routine
-    const auto& exercises = db.getExercisesByRoutine(routines[routineId - 1].getName());
-
-    if (exercises.empty()) {
-        std::cout << "No exercises found for this routine." << std::endl;
-        return;
-    }
-
+    const auto exercises = db.getExercisesByRoutine(
+        routines[static_cast<size_t>(routineId - 1)].getName());
     TableRenderer::renderExerciseList(exercises);
-
-    std::cout << "Enter exercise ID to view details (0 to return): ";
-    int id;
-    std::cin >> id;
-
-    if (id > 0 && id <= static_cast<int>(exercises.size())) {
-        TableRenderer::renderExercise(exercises[id - 1]);
-    }
+    offerExerciseDetails(exercises);
 }
 
 void GymCliApp::viewWorkoutSessions() {
-    const auto& sessionMap = db.getSessionMap();
+    const auto sessionMap = db.getSessionMap();
     TableRenderer::renderSessionList(sessionMap);
-
-    if (!sessionMap.empty()) {
-        std::string date;
-        std::cout << "Enter date to view session details (YYYY-MM-DD, or 0 to return): ";
-        std::cin.ignore();
-        std::getline(std::cin, date);
-
-        if (date != "0" && sessionMap.find(date) != sessionMap.end()) {
-            const auto& exercises = sessionMap.at(date);
-            TableRenderer::renderExerciseList(exercises);
-
-            std::cout << "Enter exercise ID to view details (0 to return): ";
-            int id;
-            std::cin >> id;
-
-            if (id > 0 && id <= static_cast<int>(exercises.size())) {
-                TableRenderer::renderExercise(exercises[id - 1]);
-            }
-        }
+    if (sessionMap.empty()) {
+        return;
     }
+
+    int sessionId = 0;
+    if (!promptInt("View session number [0 to return]: ", 0,
+                   static_cast<int>(sessionMap.size()), sessionId, 0) || sessionId == 0) {
+        return;
+    }
+    auto selected = sessionMap.begin();
+    std::advance(selected, sessionId - 1);
+    TableRenderer::renderExerciseList(selected->second);
+    offerExerciseDetails(selected->second);
 }
 
 void GymCliApp::viewProgressForExercise() {
     std::string name;
-    std::cout << "Enter exercise name to view progress: ";
-    std::cin.ignore();
-    std::getline(std::cin, name);
-
-    const auto& progressData = db.getProgressData(name);
-    TableRenderer::renderProgressChart(name, progressData);
+    if (!promptRequired("Exercise name: ", name)) {
+        return;
+    }
+    TableRenderer::renderProgressChart(name, db.getProgressData(name));
 }
 
-
-
 void GymCliApp::manageRoutines() {
-    bool backToMainMenu = false;
-
-    while (!backToMainMenu) {
+    while (running && std::cin.good()) {
         displayRoutinesMenu();
-
-        // Get user choice
-        std::string input;
-        std::getline(std::cin, input);
-        
-        // For empty input (just pressing Enter), show error and continue
-        if (input.empty() || input.find_first_not_of(" \t\n\r") == std::string::npos) {
-            std::cout << "No input provided. Please enter a number." << std::endl;
-            
-            // Give user time to read message
-            std::cout << "Press Enter to continue...";
-            std::string dummy;
-            std::getline(std::cin, dummy);
-            
-            // Clear screen and show menu again
-            #ifdef _WIN32
-                system("cls");
-            #else
-                system("clear");
-            #endif
-            continue;
-        }
-        
-        // Try to convert input to an integer
         int choice = 0;
-        
-        try {
-            choice = std::stoi(input);
-        } catch (const std::exception& e) {
-            std::cout << "Invalid input. Please enter a number." << std::endl;
-            
-            // Give user time to read message
-            std::cout << "Press Enter to continue...";
-            std::string dummy;
-            std::getline(std::cin, dummy);
-            
-            // Clear screen and show menu again
-            #ifdef _WIN32
-                system("cls");
-            #else
-                system("clear");
-            #endif
-            continue;
+        if (!promptInt("Choose an option: ", 0, 5, choice)) {
+            return;
+        }
+        if (choice == 0) {
+            clearTerminal();
+            return;
         }
 
-        // Process valid choice
         switch (choice) {
-            case 0:
-                backToMainMenu = true;
-                break;
-            case 1:
-                viewAllRoutines();
-                break;
-            case 2:
-                addNewRoutine();
-                break;
-            case 3:
-                editRoutine();
-                break;
-            case 4:
-                deleteRoutine();
-                break;
-            case 5:
-                setActiveRoutine();
-                break;
-            default:
-                std::cout << "Invalid choice. Please try again." << std::endl;
-                
-                // Give user time to read message
-                std::cout << "Press Enter to continue...";
-                std::string dummy;
-                std::getline(std::cin, dummy);
-                
-                // Continue to show menu again
-                continue;
+            case 1: viewAllRoutines(); break;
+            case 2: addNewRoutine(); break;
+            case 3: editRoutine(); break;
+            case 4: deleteRoutine(); break;
+            case 5: setActiveRoutine(); break;
+            default: break;
         }
-
-        // Only pause if we're not exiting the menu and we've performed a valid operation
-        if (!backToMainMenu) {
-            std::cout << "\nPress Enter to continue...";
-            std::string dummy;
-            std::getline(std::cin, dummy);
-            
-            // Clear screen
-            #ifdef _WIN32
-                system("cls");
-            #else
-                system("clear");
-            #endif
+        if (!std::cin.good()) {
+            return;
         }
+        waitForEnter();
+        clearTerminal();
     }
 }
 
 void GymCliApp::displayRoutinesMenu() {
-    int width = 45;
-    std::cout << std::string(width, '*') << std::endl;
-    std::cout << "*" << std::setw(width - 2) << std::left << " GYM CLI - ROUTINE MANAGEMENT" << "*" << std::endl;
-    std::cout << std::string(width, '*') << std::endl;
-    std::cout << "1. View all routines" << std::endl;
-    std::cout << "2. Add new routine" << std::endl;
-    std::cout << "3. Edit routine" << std::endl;
-    std::cout << "4. Delete routine" << std::endl;
-    std::cout << "5. Set active routine" << std::endl;
-    std::cout << "0. Back to main menu" << std::endl;
-    std::cout << std::string(width, '*') << std::endl;
-    std::cout << "Enter your choice: ";
+    const int width = std::min(getTerminalWidth(), 60);
+    std::cout << '\n' << std::string(width, '=') << '\n';
+    boxLine("ROUTINES", width);
+    std::cout << std::string(width, '=') << "\n\n"
+              << "  [1] View routines\n"
+              << "  [2] Add routine\n"
+              << "  [3] Edit routine\n"
+              << "  [4] Delete routine\n"
+              << "  [5] Set active routine\n"
+              << "  [0] Back\n\n";
 }
 
 void GymCliApp::viewAllRoutines() {
     const auto& routines = db.getAllRoutines();
     if (routines.empty()) {
-        std::cout << "No routines found." << std::endl;
+        std::cout << "No routines found.\n";
         return;
     }
-    
-    int width = 100; // Increased width to fit all days
-    std::cout << std::string(width, '=') << std::endl;
-    std::cout << std::setw(6) << "ID" 
-              << std::setw(25) << "Routine Name"
-              << std::setw(69) << "Day Assignments" << std::endl;
-    std::cout << std::string(width, '-') << std::endl;
-    
-    for (size_t i = 0; i < routines.size(); i++) {
-        const auto& routine = routines[i];
-        bool isActive = (db.getActiveRoutine() == &routine);
-        
-        // Create a string for day assignments
-        // Keep them in a specific order
-        std::vector<std::string> days = {
-            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
-        };
-        
-        std::string dayAssignments;
-        for (const auto& day : days) {
-            BodyPart bodyPart = routine.getBodyPartForDay(day);
-            std::string bodyPartStr;
-            
-            switch (bodyPart) {
-                case BodyPart::UPPER: bodyPartStr = "Upper"; break;
-                case BodyPart::LOWER: bodyPartStr = "Lower"; break;
-                case BodyPart::FULL: bodyPartStr = "Full"; break;
-                default: bodyPartStr = "Rest"; break;
-            }
-            
-            if (!dayAssignments.empty()) {
-                dayAssignments += ", ";
-            }
-            dayAssignments += day.substr(0, 3) + ":" + bodyPartStr;
+
+    const auto days = getDaysOfWeek();
+    const int width = getTerminalWidth();
+    std::cout << "\n" << routines.size() << (routines.size() == 1 ? " routine\n" : " routines\n");
+    for (size_t i = 0; i < routines.size(); ++i) {
+        std::cout << std::string(width, '-') << '\n';
+        std::string title = "[" + std::to_string(i + 1) + "] " + routines[i].getName();
+        if (db.getActiveRoutine() == &routines[i]) {
+            title += " (active)";
         }
-        
-        // Include active marker if this is the active routine
-        std::string nameDisplay = routine.getName();
-        if (isActive) {
-            nameDisplay += " (Active)";
+        std::cout << shortened(title, width) << '\n';
+
+        for (size_t start = 0; start < days.size(); start += 4) {
+            std::string schedule = "    ";
+            for (size_t index = start; index < std::min(start + 4, days.size()); ++index) {
+                if (index > start) {
+                    schedule += "  ";
+                }
+                const BodyPart bodyPart = routines[i].getBodyPartForDay(days[index]);
+                const char code = bodyPart == BodyPart::OTHER ? 'R' : bodyPartCode(bodyPart);
+                schedule += days[index].substr(0, 3) + ":" + code;
+            }
+            std::cout << shortened(schedule, width) << '\n';
         }
-        
-        std::cout << std::setw(6) << (i + 1)
-                  << std::setw(25) << nameDisplay
-                  << std::setw(69) << dayAssignments << std::endl;
     }
-    
-    std::cout << std::string(width, '=') << std::endl;
+    std::cout << std::string(width, '-') << '\n';
+    std::cout << "U=Upper, L=Lower, F=Full, R=Rest\n";
 }
 
 void GymCliApp::addNewRoutine() {
     std::string name;
-    std::cout << "Enter routine name: ";
-    std::cin.ignore();
-    std::getline(std::cin, name);
-
+    if (!promptRequired("Routine name: ", name)) {
+        return;
+    }
+    for (const auto& existing : db.getAllRoutines()) {
+        if (equalsIgnoreCase(existing.getName(), name)) {
+            std::cout << "A routine with that name already exists.\n";
+            return;
+        }
+    }
     WorkoutRoutine routine(name);
-
-    // Setup day assignments
     editRoutineDayAssignments(routine);
-
-    // Add the routine
+    if (!std::cin.good()) {
+        return;
+    }
     db.addRoutine(routine);
-    std::cout << "Routine added successfully!" << std::endl;
+    std::cout << "Routine added.\n";
 }
 
 void GymCliApp::editRoutine() {
     const auto& routines = db.getAllRoutines();
     if (routines.empty()) {
-        std::cout << "No routines found to edit." << std::endl;
+        std::cout << "No routines found to edit.\n";
         return;
     }
-
     viewAllRoutines();
 
-    size_t routineId;
-    std::cout << "Enter routine ID to edit (0 to cancel): ";
-    std::cin >> routineId;
-
-    if (routineId == 0 || routineId > routines.size()) {
+    int routineId = 0;
+    if (!promptInt("Routine ID [0 to cancel]: ", 0,
+                   static_cast<int>(routines.size()), routineId) || routineId == 0) {
         return;
     }
 
- // Get a copy of the routine to edit
-    WorkoutRoutine editedRoutine = routines[routineId - 1];
-
-    // Edit menu
-    int width = 45;
-    std::cout << std::string(width, '*') << std::endl;
-    std::cout << "*" << std::setw(width - 2) << std::left << " EDIT ROUTINE: " + editedRoutine.getName() << "*" << std::endl;
-    std::cout << std::string(width, '*') << std::endl;
-    std::cout << "1. Edit name" << std::endl;
-    std::cout << "2. Edit day assignments" << std::endl;
-    std::cout << "0. Cancel" << std::endl;
-    std::cout << std::string(width, '*') << std::endl;
-    std::cout << "Enter your choice: ";
-
-    int choice;
-    std::cin >> choice;
-
-    switch (choice) {
-        case 1:
-            editRoutineName(editedRoutine);
-            break;
-        case 2:
-            editRoutineDayAssignments(editedRoutine);
-            break;
-        default:
-            return;
+    WorkoutRoutine editedRoutine = routines[static_cast<size_t>(routineId - 1)];
+    std::cout << "\n  [1] Rename\n  [2] Edit weekly schedule\n  [0] Cancel\n";
+    int choice = 0;
+    if (!promptInt("Choose an option: ", 0, 2, choice) || choice == 0) {
+        return;
+    }
+    if (choice == 1) {
+        editRoutineName(editedRoutine);
+        for (size_t index = 0; index < routines.size(); ++index) {
+            if (index != static_cast<size_t>(routineId - 1) &&
+                equalsIgnoreCase(routines[index].getName(), editedRoutine.getName())) {
+                std::cout << "A routine with that name already exists.\n";
+                return;
+            }
+        }
+    } else {
+        editRoutineDayAssignments(editedRoutine);
+    }
+    if (!std::cin.good()) {
+        return;
     }
 
-    // Update the routine
-    db.updateRoutine(routineId - 1, editedRoutine);
-    std::cout << "Routine updated successfully!" << std::endl;
+    db.updateRoutine(static_cast<size_t>(routineId - 1), editedRoutine);
+    std::cout << "Routine updated.\n";
 }
 
 void GymCliApp::deleteRoutine() {
     const auto& routines = db.getAllRoutines();
     if (routines.empty()) {
-        std::cout << "No routines found to delete." << std::endl;
+        std::cout << "No routines found to delete.\n";
         return;
     }
-
     viewAllRoutines();
 
-    size_t routineId;
-    std::cout << "Enter routine ID to delete (0 to cancel): ";
-    std::cin >> routineId;
-
-    if (routineId == 0 || routineId > routines.size()) {
+    int routineId = 0;
+    if (!promptInt("Routine ID [0 to cancel]: ", 0,
+                   static_cast<int>(routines.size()), routineId) || routineId == 0) {
         return;
     }
-
-    // Confirm deletion
-    char confirm;
-    std::cout << "Are you sure you want to delete this routine? [y/N]: ";
-    std::cin >> confirm;
-
-    if (tolower(confirm) != 'y') {
-        std::cout << "Deletion cancelled." << std::endl;
+    bool confirmed = false;
+    if (!promptYesNo("Delete '" + routines[static_cast<size_t>(routineId - 1)].getName() +
+                     "'? [y/N]: ", false, confirmed) || !confirmed) {
+        std::cout << "Deletion cancelled.\n";
         return;
     }
-
-    // Delete the routine
-    if (db.deleteRoutine(routineId - 1)) {
-        std::cout << "Routine deleted successfully!" << std::endl;
-    } else {
-        std::cout << "Failed to delete routine." << std::endl;
+    if (db.deleteRoutine(static_cast<size_t>(routineId - 1))) {
+        std::cout << "Routine deleted.\n";
     }
 }
 
 void GymCliApp::setActiveRoutine() {
     const auto& routines = db.getAllRoutines();
     if (routines.empty()) {
-        std::cout << "No routines found." << std::endl;
+        std::cout << "No routines found.\n";
         return;
     }
-
     viewAllRoutines();
 
-    size_t routineId;
-    std::cout << "Enter routine ID to set as active (0 to cancel): ";
-    std::cin >> routineId;
-
-    if (routineId == 0 || routineId > routines.size()) {
+    int routineId = 0;
+    if (!promptInt("Routine ID [0 to cancel]: ", 0,
+                   static_cast<int>(routines.size()), routineId) || routineId == 0) {
         return;
     }
-
-    // Set as active
-    if (db.setActiveRoutine(routineId - 1)) {
-        std::cout << "Active routine set to: " << routines[routineId - 1].getName() << std::endl;
-    } else {
-        std::cout << "Failed to set active routine." << std::endl;
+    if (db.setActiveRoutine(static_cast<size_t>(routineId - 1))) {
+        std::cout << "Active routine: "
+                  << routines[static_cast<size_t>(routineId - 1)].getName() << '\n';
     }
 }
 
 void GymCliApp::editRoutineName(WorkoutRoutine& routine) {
     std::string newName;
-    std::cout << "Enter new routine name: ";
-    std::cin.ignore();
-    std::getline(std::cin, newName);
-
-    routine.setName(newName);
+    if (promptRequired("New routine name: ", newName)) {
+        routine.setName(newName);
+    }
 }
 
 void GymCliApp::editRoutineDayAssignments(WorkoutRoutine& routine) {
-    std::vector<std::string> days = {
-        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
-    };
+    std::cout << "\nWeekly schedule\n"
+              << "U=Upper, L=Lower, F=Full, R=Rest. Press Enter to keep the current value.\n";
 
-    std::cout << "Assign body parts to each day of the week:" << std::endl;
-    std::cout << "Options: (U)pper Body, (L)ower Body, (F)ull Body, (R)est Day" << std::endl;
-    std::cout << std::endl;
-
-    for (const auto& day : days) {
-        BodyPart currentBodyPart = routine.getBodyPartForDay(day);
-        char currentChoice = 'R'; // Default to rest
-
-        switch (currentBodyPart) {
-            case BodyPart::UPPER: currentChoice = 'U'; break;
-            case BodyPart::LOWER: currentChoice = 'L'; break;
-            case BodyPart::FULL: currentChoice = 'F'; break;
-            default: currentChoice = 'R'; break;
+    for (const auto& day : getDaysOfWeek()) {
+        const BodyPart current = routine.getBodyPartForDay(day);
+        const char currentCode = current == BodyPart::OTHER ? 'R' : bodyPartCode(current);
+        char choice = currentCode;
+        if (!promptChoice("  " + day + " [" + currentCode + "]: ",
+                          "ULFR", choice, currentCode)) {
+            return;
         }
-
-        std::cout << day << " [U/L/F/R] (current: " << currentChoice << "): ";
-        char choice;
-        std::cin >> choice;
-
-        BodyPart bodyPart;
-        switch (toupper(choice)) {
-            case 'U': bodyPart = BodyPart::UPPER; break;
-            case 'L': bodyPart = BodyPart::LOWER; break;
-            case 'F': bodyPart = BodyPart::FULL; break;
-            default: bodyPart = BodyPart::OTHER; break; // Rest day
-        }
-
-        routine.assignDayToBodyPart(day, bodyPart);
+        routine.assignDayToBodyPart(day, choice == 'R'
+            ? BodyPart::OTHER
+            : bodyPartFromCode(choice));
     }
 }
 
 void GymCliApp::run() {
-    while (running) {
+    while (running && std::cin.good()) {
         displayMenu();
-        
-        // Get user choice
-        std::string input;
-        std::getline(std::cin, input);
-        
-        // For empty input (just pressing Enter), show error and continue
-        if (input.empty() || input.find_first_not_of(" \t\n\r") == std::string::npos) {
-            std::cout << "No input provided. Please enter a number." << std::endl;
-            
-            // Give user time to read message
-            std::cout << "Press Enter to continue...";
-            std::string dummy;
-            std::getline(std::cin, dummy);
-            
-            // Clear screen and show menu again
-            #ifdef _WIN32
-                system("cls");
-            #else
-                system("clear");
-            #endif
-            continue;
-        }
-        
-        // Try to convert input to an integer
         int choice = 0;
-        
-        try {
-            choice = std::stoi(input);
-        } catch (const std::exception& e) {
-            std::cout << "Invalid input. Please enter a number." << std::endl;
-            
-            // Give user time to read message
-            std::cout << "Press Enter to continue...";
-            std::string dummy;
-            std::getline(std::cin, dummy);
-            
-            // Clear screen and show menu again
-            #ifdef _WIN32
-                system("cls");
-            #else
-                system("clear");
-            #endif
-            continue;
+        if (!promptInt("Choose an option: ", 0, 10, choice)) {
+            break;
         }
 
-        // Process valid choice
+        bool pauseAfterAction = true;
         switch (choice) {
-            case 0:
-                running = false;
-                break;
-            case 1:
-                addNewExercise();
-                break;
-            case 2:
-                viewAllExercises();
-                break;
-            case 3:
-                viewExercisesByCategory();
-                break;
-            case 4:
-                viewExercisesByName();
-                break;
-            case 5:
-                viewExercisesByDay();
-                break;
-            case 6:
-                viewExercisesByBodyPart();
-                break;
-            case 7:
-                viewExercisesByRoutine();
-                break;
-            case 8:
-                viewWorkoutSessions();
-                break;
-            case 9:
-                viewProgressForExercise();
-                break;
-            case 10:
-                manageRoutines();  // No cin.ignore needed before this
-                break;
-            default:
-                std::cout << "Invalid choice. Please try again." << std::endl;
-                
-                // Give user time to read message
-                std::cout << "Press Enter to continue...";
-                std::string dummy;
-                std::getline(std::cin, dummy);
-                
-                // Continue to show menu again
-                continue;
+            case 0: running = false; pauseAfterAction = false; break;
+            case 1: addNewExercise(); break;
+            case 2: viewAllExercises(); break;
+            case 3: viewExercisesByCategory(); break;
+            case 4: viewExercisesByName(); break;
+            case 5: viewExercisesByDay(); break;
+            case 6: viewExercisesByBodyPart(); break;
+            case 7: viewExercisesByRoutine(); break;
+            case 8: viewWorkoutSessions(); break;
+            case 9: viewProgressForExercise(); break;
+            case 10: manageRoutines(); pauseAfterAction = false; break;
+            default: break;
         }
 
-        if (running) {
-            std::cout << "\nPress Enter to continue...";
-            std::string dummy;
-            std::getline(std::cin, dummy);
-            
-            // Clear screen
-            #ifdef _WIN32
-                system("cls");
-            #else
-                system("clear");
-            #endif
+        if (!std::cin.good()) {
+            break;
+        }
+        if (running && pauseAfterAction) {
+            waitForEnter();
+            clearTerminal();
         }
     }
-
-    std::cout << ":p bye fuckers" << std::endl;
+    std::cout << "\nSee you next workout.\n";
 }

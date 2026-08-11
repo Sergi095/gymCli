@@ -1,146 +1,190 @@
 #include "TableRenderer.h"
-#include "Utils.h"  // For utility functions
+#include "Utils.h"
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
+#include <sstream>
+
+namespace {
+
+std::string shorten(const std::string& value, size_t width) {
+    if (value.size() <= width) {
+        return value;
+    }
+    if (width <= 3) {
+        return value.substr(0, width);
+    }
+    return value.substr(0, width - 3) + "...";
+}
+
+std::string number(double value) {
+    std::ostringstream output;
+    output << std::fixed << std::setprecision(1) << value;
+    return output.str();
+}
+
+std::string dayLabel(const std::string& date) {
+    const std::string day = getDayForDateOrLegacy(date);
+    return day == "Unknown" ? "" : day;
+}
+
+std::string dateAndDay(const std::string& date) {
+    const std::string day = dayLabel(date);
+    if (isValidDate(date) && !day.empty()) {
+        return date + " (" + day + ")";
+    }
+    if (!day.empty()) {
+        return day + " (legacy record)";
+    }
+    return date.empty() ? "Date unavailable" : date;
+}
+
+std::string plural(size_t count, const std::string& singular, const std::string& multiple) {
+    return std::to_string(count) + " " + (count == 1 ? singular : multiple);
+}
+
+std::string joinKeys(const std::map<std::string, bool>& values) {
+    std::string result;
+    for (const auto& value : values) {
+        if (!result.empty()) {
+            result += ", ";
+        }
+        result += value.first;
+    }
+    return result;
+}
+
+void rule(char character, int width) {
+    std::cout << std::string(std::max(1, width), character) << '\n';
+}
+
+} // namespace
 
 void TableRenderer::renderExercise(const Exercise& exercise) {
-    int nameWidth = std::max(20, static_cast<int>(exercise.getName().length() + 4));
-    int totalWidth = nameWidth + 40;
-
-    // Get day of week for the date
-    std::string dayOfWeek = getDayOfWeek(exercise.getDate());
-
-    std::string title = " " + exercise.getName() + " (" + exercise.getCategory() + ") - " +
-                        exercise.getDate() + " (" + dayOfWeek + ") ";
-    int padding = (totalWidth - title.length()) / 2;
-
-    // Print header
-    std::cout << std::string(padding, '=') << title << std::string(padding + title.length() % 2, '=') << std::endl;
-
-    // Get body part string and routine info
-    std::string bodyPartStr = exercise.getBodyPartString();
-    std::string routineName = exercise.getRoutineName();
-
-    std::cout << " Body Part: " << bodyPartStr << std::endl;
-    if (!routineName.empty()) {
-        std::cout << " Routine: " << routineName << std::endl;
+    const int width = std::min(getTerminalWidth(), 76);
+    std::cout << '\n';
+    rule('=', width);
+    std::cout << shorten(exercise.getName(), width) << '\n';
+    std::cout << shorten(exercise.getCategory() + " | " + exercise.getBodyPartString(), width) << '\n';
+    std::cout << shorten(dateAndDay(exercise.getDate()), width) << '\n';
+    if (!exercise.getRoutineName().empty()) {
+        std::cout << shorten("Routine: " + exercise.getRoutineName(), width) << '\n';
     }
+    rule('-', width);
 
-    // Print sets table
-    if (exercise.getMeasurementType() == MeasurementType::REPS) {
-        std::cout << std::setw(8) << "Set" << std::setw(8) << "Reps" << std::setw(10) << "Weight(kg)" << std::setw(14) << "Volume" << std::endl;
-    } else {
-        std::cout << std::setw(8) << "Set" << std::setw(8) << "Time" << std::setw(10) << "Weight(kg)" << std::setw(14) << "Volume" << std::endl;
-    }
-
-    std::cout << std::string(totalWidth, '-') << std::endl;
+    const bool repBased = exercise.getMeasurementType() == MeasurementType::REPS;
+    std::cout << std::left
+              << std::setw(6) << "Set"
+              << std::setw(10) << (repBased ? "Reps" : "Time")
+              << std::setw(13) << "Weight (kg)"
+              << "Volume" << '\n';
+    rule('-', std::min(width, 42));
 
     const auto& sets = exercise.getSets();
     const auto& reps = exercise.getReps();
     const auto& duration = exercise.getDuration();
     const auto& weights = exercise.getWeights();
 
-    for (size_t i = 0; i < sets.size(); i++) {
-        double setVolume;
+    for (size_t i = 0; i < sets.size(); ++i) {
+        const double setVolume = repBased
+            ? reps[i] * weights[i]
+            : (duration[i] / 60.0) * weights[i];
+        const std::string amount = repBased
+            ? std::to_string(reps[i])
+            : Exercise::formatTime(duration[i]);
 
-        if (exercise.getMeasurementType() == MeasurementType::REPS) {
-            setVolume = reps[i] * weights[i];
-            std::cout << std::setw(8) << sets[i]
-                      << std::setw(8) << reps[i]
-                      << std::setw(10) << std::fixed << std::setprecision(1) << weights[i]
-                      << std::setw(14) << std::fixed << std::setprecision(1) << setVolume
-                      << std::endl;
-        } else {
-            setVolume = (duration[i] / 60.0) * weights[i]; // Convert seconds to minutes
-            std::cout << std::setw(8) << sets[i]
-                      << std::setw(8) << Exercise::formatTime(duration[i])
-                      << std::setw(10) << std::fixed << std::setprecision(1) << weights[i]
-                      << std::setw(14) << std::fixed << std::setprecision(1) << setVolume
-                      << std::endl;
-        }
+        std::cout << std::left
+                  << std::setw(6) << sets[i]
+                  << std::setw(10) << amount
+                  << std::setw(13) << number(weights[i])
+                  << number(setVolume) << '\n';
     }
 
-    // Print total volume
-    std::cout << std::string(totalWidth, '-') << std::endl;
-    std::cout << std::setw(26) << "Total Volume: "
-              << std::setw(14) << std::fixed << std::setprecision(1) << exercise.calculateVolume()
-              << std::endl;
-
-    // Print notes if any
+    rule('-', std::min(width, 42));
+    std::cout << "Total volume: " << number(exercise.calculateVolume()) << '\n';
     if (!exercise.getNotes().empty()) {
-        std::cout << std::endl << "Notes: " << exercise.getNotes() << std::endl;
+        std::cout << "Notes: " << shorten(exercise.getNotes(), width - 7) << '\n';
     }
-
-    std::cout << std::string(totalWidth, '=') << std::endl << std::endl;
+    rule('=', width);
 }
 
 void TableRenderer::renderExerciseList(const std::vector<Exercise>& exercises) {
     if (exercises.empty()) {
-        std::cout << "No exercises found." << std::endl;
+        std::cout << "No exercises found.\n";
         return;
     }
 
-    int totalWidth = 106; // Increased width for routine column
-    std::cout << std::string(totalWidth, '=') << std::endl;
-    std::cout << std::setw(6) << "ID"
-              << std::setw(20) << "Exercise Name"
-              << std::setw(15) << "Category"
-              << std::setw(15) << "Date"
-              << std::setw(12) << "Day"
-              << std::setw(15) << "Body Part"
-              << std::setw(15) << "Routine" // Added routine column
-              << std::setw(6) << "Sets"
-              << std::setw(6) << "Volume" << std::endl;
-    std::cout << std::string(totalWidth, '-') << std::endl;
+    const int terminalWidth = getTerminalWidth();
+    std::cout << '\n' << plural(exercises.size(), "exercise", "exercises") << '\n';
 
-    for (size_t i = 0; i < exercises.size(); i++) {
-        // Get day of week for the date
-        std::string dayOfWeek = getDayOfWeek(exercises[i].getDate());
+    if (terminalWidth < 105) {
+        rule('-', terminalWidth);
+        for (size_t i = 0; i < exercises.size(); ++i) {
+            const Exercise& exercise = exercises[i];
+            std::cout << shorten("[" + std::to_string(i + 1) + "] " + exercise.getName(), terminalWidth) << '\n';
+            std::cout << "    " << shorten(dateAndDay(exercise.getDate()), terminalWidth - 4) << '\n';
+            std::cout << "    " << shorten(exercise.getCategory() + " | " + exercise.getBodyPartString(), terminalWidth - 4) << '\n';
 
-        std::cout << std::setw(6) << (i + 1)
-                  << std::setw(20) << exercises[i].getName().substr(0, 18)
-                  << std::setw(15) << exercises[i].getCategory().substr(0, 13)
-                  << std::setw(15) << exercises[i].getDate()
-                  << std::setw(12) << dayOfWeek.substr(0, 10)
-                  << std::setw(15) << exercises[i].getBodyPartString()
-                  << std::setw(15) << exercises[i].getRoutineName().substr(0, 13) // Display routine name
-                  << std::setw(7) << exercises[i].getSets().size()
-                  << std::setw(7) << std::fixed << std::setprecision(1) << exercises[i].calculateVolume()
-                  << std::endl;
+            std::string summary = plural(exercise.getSets().size(), "set", "sets") +
+                                  " | volume " + number(exercise.calculateVolume());
+            if (!exercise.getRoutineName().empty()) {
+                summary += " | " + exercise.getRoutineName();
+            }
+            std::cout << "    " << shorten(summary, terminalWidth - 4) << '\n';
+            if (i + 1 < exercises.size()) {
+                std::cout << '\n';
+            }
+        }
+        rule('-', terminalWidth);
+        return;
     }
 
-    std::cout << std::string(totalWidth, '=') << std::endl;
+    const int width = 103;
+    rule('=', width);
+    std::cout << std::left
+              << std::setw(4) << "ID"
+              << std::setw(19) << "Exercise"
+              << std::setw(14) << "Category"
+              << std::setw(12) << "Date"
+              << std::setw(11) << "Day"
+              << std::setw(13) << "Body part"
+              << std::setw(14) << "Routine"
+              << std::setw(6) << "Sets"
+              << "Volume" << '\n';
+    rule('-', width);
+
+    for (size_t i = 0; i < exercises.size(); ++i) {
+        const Exercise& exercise = exercises[i];
+        std::cout << std::left
+                  << std::setw(4) << (i + 1)
+                  << std::setw(19) << shorten(exercise.getName(), 18)
+                  << std::setw(14) << shorten(exercise.getCategory(), 13)
+                  << std::setw(12) << shorten(exercise.getDate(), 11)
+                  << std::setw(11) << shorten(dayLabel(exercise.getDate()), 10)
+                  << std::setw(13) << shorten(exercise.getBodyPartString(), 12)
+                  << std::setw(14) << shorten(exercise.getRoutineName(), 13)
+                  << std::setw(6) << exercise.getSets().size()
+                  << number(exercise.calculateVolume()) << '\n';
+    }
+    rule('=', width);
 }
 
-void TableRenderer::renderSessionList(const std::map<std::string, std::vector<Exercise>>& sessionMap) {
+void TableRenderer::renderSessionList(
+    const std::map<std::string, std::vector<Exercise>>& sessionMap) {
     if (sessionMap.empty()) {
-        std::cout << "No workout sessions found." << std::endl;
+        std::cout << "No workout sessions found.\n";
         return;
     }
 
-    int totalWidth = 120; // Increased for routine information
-    std::cout << std::string(totalWidth, '=') << std::endl;
-    std::cout << std::setw(15) << "Date"
-              << std::setw(15) << "Day of Week"
-              << std::setw(10) << "Exercises"
-              << std::setw(15) << "Categories"
-              << std::setw(30) << "Body Parts"
-              << std::setw(15) << "Routines" // Added routines column
-              << std::setw(10) << "Sets"
-              << std::setw(7) << "Volume" << std::endl;
-    std::cout << std::string(totalWidth, '-') << std::endl;
+    const int terminalWidth = getTerminalWidth();
+    std::cout << '\n' << plural(sessionMap.size(), "session", "sessions") << '\n';
 
-    // For each date
+    size_t sessionNumber = 1;
     for (const auto& session : sessionMap) {
-        // Get the day of week for this session using the utility function
-        std::string dayOfWeek = getDayOfWeek(session.first);
-
-        // Count unique categories, body parts, and routines
         std::map<std::string, bool> categories;
         std::map<std::string, bool> bodyParts;
         std::map<std::string, bool> routines;
-        int totalSets = 0;
+        size_t totalSets = 0;
         double totalVolume = 0;
 
         for (const auto& exercise : session.second) {
@@ -149,73 +193,50 @@ void TableRenderer::renderSessionList(const std::map<std::string, std::vector<Ex
             if (!exercise.getRoutineName().empty()) {
                 routines[exercise.getRoutineName()] = true;
             }
-
             totalSets += exercise.getSets().size();
             totalVolume += exercise.calculateVolume();
         }
 
-        // Create a string of body parts
-        std::string bodyPartList;
-        for (const auto& bp : bodyParts) {
-            if (!bodyPartList.empty()) {
-                bodyPartList += ", ";
-            }
-            bodyPartList += bp.first;
+        rule('-', terminalWidth);
+        std::cout << shorten("[" + std::to_string(sessionNumber) + "] " +
+                             dateAndDay(session.first), terminalWidth) << '\n';
+        std::cout << shorten(plural(session.second.size(), "exercise", "exercises") +
+                             " | " + plural(totalSets, "set", "sets") +
+                             " | volume " + number(totalVolume), terminalWidth) << '\n';
+        std::cout << shorten("Body: " + joinKeys(bodyParts), terminalWidth) << '\n';
+        if (!routines.empty()) {
+            std::cout << shorten("Routine: " + joinKeys(routines), terminalWidth) << '\n';
         }
-
-        // Create a string of routines
-        std::string routineList;
-        for (const auto& r : routines) {
-            if (!routineList.empty()) {
-                routineList += ", ";
-            }
-            routineList += r.first;
-        }
-
-        // Format the categories count properly
-        std::string categoriesText = std::to_string(categories.size());
-
-        std::cout << std::setw(15) << session.first
-                  << std::setw(15) << dayOfWeek
-                  << std::setw(10) << session.second.size()
-                  << std::setw(15) << categoriesText
-                  << std::setw(30) << bodyPartList
-                  << std::setw(15) << routineList.substr(0, 13)
-                  << std::setw(10) << totalSets
-                  << std::setw(10) << std::fixed << std::setprecision(1) << totalVolume
-                  << std::endl;
+        std::cout << shorten("Categories: " + joinKeys(categories), terminalWidth) << '\n';
+        ++sessionNumber;
     }
-
-    std::cout << std::string(totalWidth, '=') << std::endl;
+    rule('-', terminalWidth);
 }
 
-void TableRenderer::renderProgressChart(const std::string& exerciseName,
-                               const std::map<std::string, double>& progressData) {
+void TableRenderer::renderProgressChart(
+    const std::string& exerciseName,
+    const std::map<std::string, double>& progressData) {
     if (progressData.empty()) {
-        std::cout << "No progress data available for " << exerciseName << std::endl;
+        std::cout << "No progress data available for " << exerciseName << ".\n";
         return;
     }
 
-    int totalWidth = 80;
-    std::cout << std::string(totalWidth, '=') << std::endl;
-    std::cout << " Progress Chart for " << exerciseName << " " << std::endl;
-    std::cout << std::string(totalWidth, '-') << std::endl;
-
-    // Find max value for scaling
+    const int width = std::min(getTerminalWidth(), 80);
+    const int chartWidth = std::max(10, width - 28);
     double maxValue = 0;
     for (const auto& entry : progressData) {
         maxValue = std::max(maxValue, entry.second);
     }
 
-    const int chartWidth = 50;
-
-    // For each date
+    std::cout << '\n' << shorten("Progress: " + exerciseName, width) << '\n';
+    rule('-', width);
     for (const auto& entry : progressData) {
-        int barLength = static_cast<int>((entry.second / maxValue) * chartWidth);
-        std::cout << std::setw(12) << entry.first << " |";
-        std::cout << std::string(barLength, '#');
-        std::cout << " " << std::fixed << std::setprecision(1) << entry.second << std::endl;
+        const int barLength = maxValue > 0
+            ? static_cast<int>((entry.second / maxValue) * chartWidth)
+            : 0;
+        std::cout << std::left << std::setw(12) << shorten(entry.first, 11)
+                  << " | " << std::string(barLength, '#')
+                  << (barLength > 0 ? " " : "") << number(entry.second) << " kg\n";
     }
-
-    std::cout << std::string(totalWidth, '=') << std::endl;
+    rule('-', width);
 }

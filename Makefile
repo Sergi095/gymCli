@@ -26,6 +26,12 @@ SRCDIR = src
 INCDIR = include
 OBJDIR = obj
 DB_FILES = gym_data.db gym_routines.db
+TEST_TARGET = $(OBJDIR)/gymcli_tests$(EXE_EXT)
+TEST_SRCS = tests/test_core.cpp \
+	$(SRCDIR)/Exercise.cpp \
+	$(SRCDIR)/GymDatabse.cpp \
+	$(SRCDIR)/Utils.cpp \
+	$(SRCDIR)/WorkoutRoutine.cpp
 
 SRCS = $(wildcard $(SRCDIR)/*.cpp)
 OBJS = $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SRCS))
@@ -90,6 +96,12 @@ endif
 run: $(TARGET)
 	./$(TARGET)
 
+$(TEST_TARGET): $(TEST_SRCS) $(DEPS) | $(OBJDIR)
+	$(CXX) $(CXXFLAGS) -I$(INCDIR) -o $@ $(TEST_SRCS)
+
+test: $(TEST_TARGET)
+	./$(TEST_TARGET)
+
 devinstall: $(TARGET)
 ifeq ($(DETECTED_OS),Windows)
 	@if not exist "test_install" mkdir test_install
@@ -110,5 +122,4 @@ else
 endif
 	@echo Test environment created: ./test_install/bin/gymcli
 
-.PHONY: all clean install uninstall run devinstall
-
+.PHONY: all clean install uninstall run test devinstall

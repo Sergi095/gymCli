@@ -116,10 +116,17 @@ WorkoutRoutine WorkoutRoutine::deserialize(const std::string& data) {
         if (semicolonPos == std::string::npos) semicolonPos = assignmentsStr.length();
         
         std::string day = assignmentsStr.substr(pos, equalPos - pos);
-        int bodyPartValue = std::stoi(assignmentsStr.substr(equalPos + 1, semicolonPos - equalPos - 1));
-        BodyPart bodyPart = static_cast<BodyPart>(bodyPartValue);
-        
-        routine.assignDayToBodyPart(day, bodyPart);
+        try {
+            int bodyPartValue = std::stoi(
+                assignmentsStr.substr(equalPos + 1, semicolonPos - equalPos - 1));
+            if (bodyPartValue < static_cast<int>(BodyPart::UPPER) ||
+                bodyPartValue > static_cast<int>(BodyPart::OTHER)) {
+                bodyPartValue = static_cast<int>(BodyPart::OTHER);
+            }
+            routine.assignDayToBodyPart(day, static_cast<BodyPart>(bodyPartValue));
+        } catch (...) {
+            // Leave the default rest-day assignment for malformed entries.
+        }
         pos = semicolonPos + 1;
     }
     

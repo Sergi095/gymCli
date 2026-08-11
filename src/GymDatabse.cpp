@@ -25,9 +25,11 @@ GymDatabase::GymDatabase(const std::string& filename, const std::string& routine
         saveRoutinesToFile();
     }
 
-    // If no active routine is set, use the first one
-    if (activeRoutineIndex == -1 && !routines.empty()) {
+    // Recover cleanly from a stale or malformed active routine index.
+    if (!routines.empty() &&
+        (activeRoutineIndex < 0 || activeRoutineIndex >= static_cast<int>(routines.size()))) {
         activeRoutineIndex = 0;
+        saveRoutinesToFile();
     }
 }
 
@@ -70,9 +72,15 @@ std::map<std::string, std::vector<Exercise>> GymDatabase::getSessionMap() const 
 
 std::vector<Exercise> GymDatabase::getExercisesByDay(const std::string& dayOfWeek) const {
     std::vector<Exercise> result;
+    const std::string normalizedDay = normalizeDayOfWeek(dayOfWeek);
+    if (normalizedDay.empty()) {
+        return result;
+    }
+
     for (const auto& exercise : exercises) {
-        // Directly compare the stored day with the requested day
-        if (equalsIgnoreCase(exercise.getDate(), dayOfWeek)) {
+        // Current records store YYYY-MM-DD. Older records stored a weekday;
+        // keep those readable while using real dates going forward.
+        if (equalsIgnoreCase(getDayForDateOrLegacy(exercise.getDate()), normalizedDay)) {
             result.push_back(exercise);
         }
     }
@@ -102,13 +110,13 @@ std::vector<Exercise> GymDatabase::getExercisesByRoutine(const std::string& rout
 std::map<std::string, double> GymDatabase::getProgressData(const std::string& exerciseName) const {
     std::map<std::string, double> result;
     for (const auto& exercise : exercises) {
-        if (exercise.getName() == exerciseName) {
+        if (equalsIgnoreCase(exercise.getName(), exerciseName)) {
             // Find the maximum weight used in this exercise
             double maxWeight = 0;
             for (const auto& weight : exercise.getWeights()) {
                 maxWeight = std::max(maxWeight, weight);
             }
-            result[exercise.getDate()] = maxWeight;
+            result[exercise.getDate()] = std::max(result[exercise.getDate()], maxWeight);
         }
     }
     return result;
@@ -130,7 +138,18 @@ bool GymDatabase::updateRoutine(size_t index, const WorkoutRoutine& routine) {
         return false;
     }
 
+    const std::string previousName = routines[index].getName();
     routines[index] = routine;
+
+    if (!equalsIgnoreCase(previousName, routine.getName())) {
+        for (auto& exercise : exercises) {
+            if (equalsIgnoreCase(exercise.getRoutineName(), previousName)) {
+                exercise.setRoutineName(routine.getName());
+            }
+        }
+        saveToFile();
+    }
+
     saveRoutinesToFile();
     return true;
 }
