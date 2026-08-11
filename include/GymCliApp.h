@@ -24,11 +24,13 @@ private:
     // Routine management methods
     void manageRoutines();
     void displayRoutinesMenu();
-    void viewAllRoutines();
+    void viewAllRoutines(bool offerDetails = true);
+    void displayRoutineDetails(const WorkoutRoutine& routine);
     void addNewRoutine();
     void editRoutine();
     void deleteRoutine();
     void setActiveRoutine();
+    void importRoutineFromCsv();
 
 
     void editRoutineName(WorkoutRoutine& routine);
@@ -43,6 +45,7 @@ private:
 public:
     GymCliApp();
     void run();
+    bool importRoutineCsvFile(const std::string& filename, bool replaceExisting = false);
 };
 
 #endif // GYM_CLI_APP_H

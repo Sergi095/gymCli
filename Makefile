@@ -54,6 +54,7 @@ TEST_TARGET = $(OBJDIR)/gymcli_tests$(EXE_EXT)
 TEST_SRCS = tests/test_core.cpp \
 	$(SRCDIR)/Exercise.cpp \
 	$(SRCDIR)/GymDatabse.cpp \
+	$(SRCDIR)/RoutineCsvImporter.cpp \
 	$(SRCDIR)/Utils.cpp \
 	$(SRCDIR)/WorkoutRoutine.cpp
 
@@ -83,10 +84,9 @@ ifeq ($(DETECTED_OS),Windows)
 	@if not exist "$(INSTALL_DIR)" $(MKDIR) "$(INSTALL_DIR)"
 	@$(CP) $(TARGET) "$(SYSTEM_BIN)\$(BIN_TARGET)"
 	@echo @echo off > "$(SYSTEM_BIN)\gymcli.bat"
-	@echo set DATADIR=%%APPDATA%%\GymCli >> "$(SYSTEM_BIN)\gymcli.bat"
-	@echo if not exist "%%DATADIR%%" mkdir "%%DATADIR%%" >> "$(SYSTEM_BIN)\gymcli.bat"
-	@echo cd /d "%%DATADIR%%" >> "$(SYSTEM_BIN)\gymcli.bat"
-	@echo $(SYSTEM_BIN)\$(BIN_TARGET) >> "$(SYSTEM_BIN)\gymcli.bat"
+	@echo set GYMCLI_DATA_DIR=%%APPDATA%%\GymCli >> "$(SYSTEM_BIN)\gymcli.bat"
+	@echo if not exist "%%GYMCLI_DATA_DIR%%" mkdir "%%GYMCLI_DATA_DIR%%" >> "$(SYSTEM_BIN)\gymcli.bat"
+	@echo "$(SYSTEM_BIN)\$(BIN_TARGET)" %%* >> "$(SYSTEM_BIN)\gymcli.bat"
 	@echo Installation complete.
 else
 	@echo Installing on $(DETECTED_OS)...
@@ -99,7 +99,7 @@ else
 	echo '#!$(SH_PATH)' > gymcli_launcher
 	echo 'DATA_DIR="$(INSTALL_DIR)"' >> gymcli_launcher
 	echo 'mkdir -p "$$DATA_DIR" || exit 1' >> gymcli_launcher
-	echo 'cd "$$DATA_DIR" || exit 1' >> gymcli_launcher
+	echo 'export GYMCLI_DATA_DIR="$$DATA_DIR"' >> gymcli_launcher
 	echo 'exec "$(SYSTEM_BIN)/$(BIN_TARGET)" "$$@"' >> gymcli_launcher
 	chmod +x gymcli_launcher
 	$(INSTALL_PRIVILEGE) $(CP) gymcli_launcher "$(SYSTEM_BIN)/gymcli"
@@ -141,7 +141,8 @@ else
 	echo '#!$(SH_PATH)' > test_install/bin/gymcli
 	echo 'SCRIPT_DIR="$$(cd "$$(dirname "$$0")" && pwd)"' >> test_install/bin/gymcli
 	echo 'DATA_DIR="$$SCRIPT_DIR/../data"' >> test_install/bin/gymcli
-	echo 'cd "$$DATA_DIR" && exec "$$SCRIPT_DIR/$(BIN_TARGET)"' >> test_install/bin/gymcli
+	echo 'export GYMCLI_DATA_DIR="$$DATA_DIR"' >> test_install/bin/gymcli
+	echo 'exec "$$SCRIPT_DIR/$(BIN_TARGET)" "$$@"' >> test_install/bin/gymcli
 	chmod +x test_install/bin/gymcli
 endif
 	@echo Test environment created: ./test_install/bin/gymcli

@@ -70,6 +70,7 @@ void TableRenderer::renderExercise(const Exercise& exercise) {
     if (!exercise.getRoutineName().empty()) {
         std::cout << shorten("Routine: " + exercise.getRoutineName(), width) << '\n';
     }
+    std::cout << "Google: " << exercise.getGoogleSearchUrl() << '\n';
     rule('-', width);
 
     const bool repBased = exercise.getMeasurementType() == MeasurementType::REPS;

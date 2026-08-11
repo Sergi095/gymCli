@@ -3,9 +3,33 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <cstdlib>
+
+namespace {
+
+std::string resolveDataFile(const std::string& filename) {
+    if (filename != "gym_data.db" && filename != "gym_routines.db") {
+        return filename;
+    }
+
+    const char* dataDirectory = std::getenv("GYMCLI_DATA_DIR");
+    if (dataDirectory == nullptr || std::string(dataDirectory).empty()) {
+        return filename;
+    }
+
+    std::string resolved(dataDirectory);
+    if (resolved.back() != '/' && resolved.back() != '\\') {
+        resolved += '/';
+    }
+    return resolved + filename;
+}
+
+} // namespace
 
 GymDatabase::GymDatabase(const std::string& filename, const std::string& routinesFile)
-    : dbFilename(filename), routinesFilename(routinesFile), activeRoutineIndex(-1) {
+    : dbFilename(resolveDataFile(filename)),
+      routinesFilename(resolveDataFile(routinesFile)),
+      activeRoutineIndex(-1) {
     loadFromFile();
     loadRoutinesFromFile();
 

@@ -1,4 +1,5 @@
 #include "GymCliApp.h"
+#include "RoutineCsvImporter.h"
 #include "TableRenderer.h"
 #include "Utils.h"
 #include <iostream>
@@ -8,6 +9,7 @@
 #include <cctype>
 #include <sstream>
 #include <iterator>
+#include <cstdlib>
 
 namespace {
 
@@ -27,6 +29,16 @@ std::string storedText(const std::string& value) {
     std::string result = trim(value);
     std::replace(result.begin(), result.end(), '|', '/');
     return result;
+}
+
+std::string expandUserPath(const std::string& value) {
+    if (value == "~" || value.substr(0, 2) == "~/") {
+        const char* userDirectory = std::getenv("HOME");
+        if (userDirectory != nullptr) {
+            return std::string(userDirectory) + value.substr(1);
+        }
+    }
+    return value;
 }
 
 bool promptLine(const std::string& prompt, std::string& value) {
@@ -508,7 +520,7 @@ void GymCliApp::manageRoutines() {
     while (running && std::cin.good()) {
         displayRoutinesMenu();
         int choice = 0;
-        if (!promptInt("Choose an option: ", 0, 5, choice)) {
+        if (!promptInt("Choose an option: ", 0, 6, choice)) {
             return;
         }
         if (choice == 0) {
@@ -522,6 +534,7 @@ void GymCliApp::manageRoutines() {
             case 3: editRoutine(); break;
             case 4: deleteRoutine(); break;
             case 5: setActiveRoutine(); break;
+            case 6: importRoutineFromCsv(); break;
             default: break;
         }
         if (!std::cin.good()) {
@@ -542,10 +555,11 @@ void GymCliApp::displayRoutinesMenu() {
               << "  [3] Edit routine\n"
               << "  [4] Delete routine\n"
               << "  [5] Set active routine\n"
+              << "  [6] Import routine from CSV\n"
               << "  [0] Back\n\n";
 }
 
-void GymCliApp::viewAllRoutines() {
+void GymCliApp::viewAllRoutines(bool offerDetails) {
     const auto& routines = db.getAllRoutines();
     if (routines.empty()) {
         std::cout << "No routines found.\n";
@@ -562,6 +576,13 @@ void GymCliApp::viewAllRoutines() {
             title += " (active)";
         }
         std::cout << shortened(title, width) << '\n';
+        std::string summary = "    ";
+        if (!routines[i].getFocus().empty()) {
+            summary += routines[i].getFocus() + " | ";
+        }
+        summary += std::to_string(routines[i].getExercises().size()) +
+                   (routines[i].getExercises().size() == 1 ? " exercise" : " exercises");
+        std::cout << shortened(summary, width) << '\n';
 
         for (size_t start = 0; start < days.size(); start += 4) {
             std::string schedule = "    ";
@@ -578,6 +599,75 @@ void GymCliApp::viewAllRoutines() {
     }
     std::cout << std::string(width, '-') << '\n';
     std::cout << "U=Upper, L=Lower, F=Full, R=Rest\n";
+
+    if (offerDetails) {
+        int routineId = 0;
+        if (promptInt("View routine ID [0 to return]: ", 0,
+                      static_cast<int>(routines.size()), routineId, 0) && routineId > 0) {
+            displayRoutineDetails(routines[static_cast<size_t>(routineId - 1)]);
+        }
+    }
+}
+
+void GymCliApp::displayRoutineDetails(const WorkoutRoutine& routine) {
+    const int width = getTerminalWidth();
+    std::cout << '\n' << std::string(width, '=') << '\n';
+    std::cout << shortened(routine.getName(), width) << '\n';
+    if (!routine.getFocus().empty()) {
+        std::cout << "Focus: " << routine.getFocus() << '\n';
+    }
+    if (!routine.getNotes().empty()) {
+        std::cout << "Instructions: " << routine.getNotes() << '\n';
+    }
+    std::cout << std::string(width, '-') << '\n';
+
+    const auto& exercises = routine.getExercises();
+    if (exercises.empty()) {
+        std::cout << "No exercises attached; this routine contains only a weekly schedule.\n";
+        std::cout << std::string(width, '=') << '\n';
+        return;
+    }
+
+    std::string currentSection;
+    for (size_t index = 0; index < exercises.size(); ++index) {
+        const RoutineExercise& exercise = exercises[index];
+        const std::string section = exercise.section.empty() ? "Exercises" : exercise.section;
+        if (section != currentSection) {
+            if (!currentSection.empty()) {
+                std::cout << '\n';
+            }
+            currentSection = section;
+            std::cout << currentSection << '\n';
+        }
+
+        std::cout << "  [" << (index + 1) << "] " << exercise.name << '\n';
+        std::string prescription;
+        if (!exercise.sets.empty()) prescription += "Sets: " + exercise.sets;
+        if (!exercise.reps.empty()) {
+            if (!prescription.empty()) prescription += " | ";
+            prescription += "Reps: " + exercise.reps;
+        }
+        if (!exercise.duration.empty()) {
+            if (!prescription.empty()) prescription += " | ";
+            prescription += "Duration: " + exercise.duration;
+        }
+        if (!exercise.weight.empty()) {
+            if (!prescription.empty()) prescription += " | ";
+            prescription += "Weight: " + exercise.weight;
+        }
+        if (!exercise.rest.empty()) {
+            if (!prescription.empty()) prescription += " | ";
+            prescription += "Rest: " + exercise.rest;
+        }
+        if (!prescription.empty()) {
+            std::cout << "      " << prescription << '\n';
+        }
+        if (!exercise.notes.empty()) {
+            std::cout << "      Notes: " << exercise.notes << '\n';
+        }
+        std::cout << "      Google: " << exercise.link << '\n';
+    }
+    std::cout << std::string(width, '=') << '\n';
 }
 
 void GymCliApp::addNewRoutine() {
@@ -606,7 +696,7 @@ void GymCliApp::editRoutine() {
         std::cout << "No routines found to edit.\n";
         return;
     }
-    viewAllRoutines();
+    viewAllRoutines(false);
 
     int routineId = 0;
     if (!promptInt("Routine ID [0 to cancel]: ", 0,
@@ -646,7 +736,7 @@ void GymCliApp::deleteRoutine() {
         std::cout << "No routines found to delete.\n";
         return;
     }
-    viewAllRoutines();
+    viewAllRoutines(false);
 
     int routineId = 0;
     if (!promptInt("Routine ID [0 to cancel]: ", 0,
@@ -670,7 +760,7 @@ void GymCliApp::setActiveRoutine() {
         std::cout << "No routines found.\n";
         return;
     }
-    viewAllRoutines();
+    viewAllRoutines(false);
 
     int routineId = 0;
     if (!promptInt("Routine ID [0 to cancel]: ", 0,
@@ -681,6 +771,63 @@ void GymCliApp::setActiveRoutine() {
         std::cout << "Active routine: "
                   << routines[static_cast<size_t>(routineId - 1)].getName() << '\n';
     }
+}
+
+bool GymCliApp::importRoutineCsvFile(const std::string& filename, bool replaceExisting) {
+    const std::string path = expandUserPath(trim(filename));
+    const RoutineCsvImportResult imported = RoutineCsvImporter::parseFile(path);
+    if (!imported.success) {
+        std::cout << "Routine was not imported:\n";
+        const size_t visibleErrors = std::min<size_t>(imported.errors.size(), 10);
+        for (size_t index = 0; index < visibleErrors; ++index) {
+            std::cout << "  - " << imported.errors[index] << '\n';
+        }
+        if (imported.errors.size() > visibleErrors) {
+            std::cout << "  - ...and " << (imported.errors.size() - visibleErrors)
+                      << " more error(s).\n";
+        }
+        return false;
+    }
+
+    const auto& routines = db.getAllRoutines();
+    for (size_t index = 0; index < routines.size(); ++index) {
+        if (equalsIgnoreCase(routines[index].getName(), imported.routine.getName())) {
+            if (!replaceExisting) {
+                std::cout << "Routine '" << imported.routine.getName()
+                          << "' already exists. Use --replace or allow replacement in the menu.\n";
+                return false;
+            }
+            db.updateRoutine(index, imported.routine);
+            std::cout << "Replaced routine '" << imported.routine.getName() << "' from "
+                      << imported.rowsRead << " CSV row(s).\n";
+            return true;
+        }
+    }
+
+    db.addRoutine(imported.routine);
+    std::cout << "Imported routine '" << imported.routine.getName() << "' from "
+              << imported.rowsRead << " CSV row(s).\n";
+    return true;
+}
+
+void GymCliApp::importRoutineFromCsv() {
+    std::string filename;
+    while (true) {
+        if (!promptLine("CSV file path: ", filename)) {
+            return;
+        }
+        if (!filename.empty()) {
+            break;
+        }
+        std::cout << "Enter the path to a CSV file.\n";
+    }
+
+    bool replaceExisting = false;
+    if (!promptYesNo("Replace a routine with the same name? [y/N]: ",
+                     false, replaceExisting)) {
+        return;
+    }
+    importRoutineCsvFile(filename, replaceExisting);
 }
 
 void GymCliApp::editRoutineName(WorkoutRoutine& routine) {

@@ -79,11 +79,38 @@ make run
 make test
 ```
 
+## Import a routine from CSV
+
+Import from the routine menu, or pass a file directly:
+
+```bash
+gymcli --import-routine examples/muscle_strength.csv
+```
+
+Use `--replace` to update a routine that already has the same name:
+
+```bash
+gymcli --import-routine routine.csv --replace
+```
+
+Every row must contain `routine`. Exercise routines use `exercise` and may
+also include `focus`, `routine_notes`, `section`, `sets`, `reps`, `duration`,
+`weight`, `rest`, `notes`, and `google_url`. When `google_url` is blank,
+GymCLI creates a Google exercise-technique search link automatically.
+
+A CSV can optionally schedule the routine with paired `day` and `body_part`
+columns. Accepted body parts are `upper`, `lower`, `full`, and `rest`; short
+weekday and body-part codes such as `Mon,U` also work. Unspecified days remain
+rest days. See [`examples/muscle_strength.csv`](examples/muscle_strength.csv)
+for the converted full-body routine.
+
 ## Features
 
 - **Exercise tracking**: Record reps or duration, weight, notes, and volume
 - **Dated history**: Group workouts into sessions and filter them by weekday
 - **Workout routines**: Assign upper, lower, full-body, or rest days
+- **CSV routine import**: Load exercises, instructions, prescriptions, and schedules
+- **Exercise links**: Show clickable Google technique searches in exercise details
 - **Progress charts**: Compare the maximum weight by date
 - **Responsive output**: Compact cards on narrow screens and tables on wide ones
 - **Validated prompts**: Bad input is explained and requested again instead of being silently changed

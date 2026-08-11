@@ -51,6 +51,7 @@ public:
     BodyPart getBodyPart() const;
     std::string getBodyPartString() const;
     std::string getRoutineName() const;
+    std::string getGoogleSearchUrl() const;
 
     const std::vector<int>& getSets() const;
     const std::vector<int>& getReps() const;

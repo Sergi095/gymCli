@@ -11,6 +11,7 @@ std::string getDayForDateOrLegacy(const std::string& value);
 std::string normalizeDayOfWeek(const std::string& value);
 bool isValidDate(const std::string& dateStr);
 std::string trim(const std::string& value);
+std::string makeGoogleSearchUrl(const std::string& exerciseName);
 std::string toLower(const std::string& str);
 bool containsIgnoreCase(const std::string& str, const std::string& substr);
 bool equalsIgnoreCase(const std::string& str1, const std::string& str2);

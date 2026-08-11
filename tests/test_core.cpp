@@ -1,10 +1,12 @@
 #include "Exercise.h"
 #include "GymDatabse.h"
+#include "RoutineCsvImporter.h"
 #include "Utils.h"
 #include "WorkoutRoutine.h"
 #include <cassert>
 #include <cstdio>
 #include <ctime>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -19,6 +21,8 @@ int main() {
     const std::string token = std::to_string(static_cast<long long>(std::time(nullptr)));
     const std::string dataFile = "gymcli_test_" + token + "_data.db";
     const std::string routinesFile = "gymcli_test_" + token + "_routines.db";
+    const std::string validCsvFile = "gymcli_test_" + token + "_routine.csv";
+    const std::string invalidCsvFile = "gymcli_test_" + token + "_invalid.csv";
     std::remove(dataFile.c_str());
     std::remove(routinesFile.c_str());
 
@@ -29,6 +33,8 @@ int main() {
         bench.setDate("2026-08-11");
         bench.setRoutineName("Default Routine");
         bench.addRepSet(10, 50);
+        assert(bench.getGoogleSearchUrl() ==
+               "https://www.google.com/search?q=Bench+Press+exercise+technique");
         database.addExercise(bench);
 
         Exercise heavierBench("bench press", "Chest", MeasurementType::REPS, BodyPart::UPPER);
@@ -65,8 +71,53 @@ int main() {
     assert(malformed.getBodyPartForDay("Monday") == BodyPart::OTHER);
     assert(malformed.getBodyPartForDay("Tuesday") == BodyPart::LOWER);
 
+    {
+        std::ofstream csv(validCsvFile);
+        csv << "routine,day,body_part,comment\n"
+            << "\"Phone, Strength\",Mon,U,quoted comma works\n"
+            << "\"Phone, Strength\",Tuesday,lower,\n"
+            << "\"Phone, Strength\",Fri,rest,\n";
+    }
+    const RoutineCsvImportResult imported = RoutineCsvImporter::parseFile(validCsvFile);
+    assert(imported.success);
+    assert(imported.rowsRead == 3);
+    assert(imported.routine.getName() == "Phone, Strength");
+    assert(imported.routine.getBodyPartForDay("Monday") == BodyPart::UPPER);
+    assert(imported.routine.getBodyPartForDay("Tuesday") == BodyPart::LOWER);
+    assert(imported.routine.getBodyPartForDay("Wednesday") == BodyPart::OTHER);
+    assert(imported.routine.getBodyPartForDay("Friday") == BodyPart::OTHER);
+
+    {
+        std::ofstream csv(invalidCsvFile);
+        csv << "routine,day,body_part\n"
+            << "Duplicate,Monday,upper\n"
+            << "Duplicate,Mon,lower\n";
+    }
+    const RoutineCsvImportResult invalid = RoutineCsvImporter::parseFile(invalidCsvFile);
+    assert(!invalid.success);
+    assert(!invalid.errors.empty());
+
+    const RoutineCsvImportResult fullBody =
+        RoutineCsvImporter::parseFile("examples/muscle_strength.csv");
+    assert(fullBody.success);
+    assert(fullBody.routine.getName() == "Muscle Strength");
+    assert(fullBody.routine.getFocus() == "Full Body");
+    assert(fullBody.routine.getExercises().size() == 13);
+    assert(fullBody.routine.getExercises()[0].name == "Static squat");
+    assert(fullBody.routine.getExercises()[0].link.find("google.com/search") != std::string::npos);
+    assert(fullBody.routine.getExercises()[11].section == "Flexibility");
+
+    const WorkoutRoutine restored = WorkoutRoutine::deserialize(fullBody.routine.serialize());
+    assert(restored.getName() == "Muscle Strength");
+    assert(restored.getFocus() == "Full Body");
+    assert(restored.getNotes() == fullBody.routine.getNotes());
+    assert(restored.getExercises().size() == fullBody.routine.getExercises().size());
+    assert(restored.getExercises()[5].notes == fullBody.routine.getExercises()[5].notes);
+
     std::remove(dataFile.c_str());
     std::remove(routinesFile.c_str());
+    std::remove(validCsvFile.c_str());
+    std::remove(invalidCsvFile.c_str());
     std::cout << "All core tests passed.\n";
     return 0;
 }

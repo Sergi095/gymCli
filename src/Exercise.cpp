@@ -74,6 +74,10 @@ std::string Exercise::getRoutineName() const {
     return routineName;
 }
 
+std::string Exercise::getGoogleSearchUrl() const {
+    return makeGoogleSearchUrl(name);
+}
+
 const std::vector<int>& Exercise::getSets() const {
     return sets;
 }

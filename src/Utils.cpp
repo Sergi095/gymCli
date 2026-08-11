@@ -28,6 +28,24 @@ const std::vector<std::string>& daysOfWeek() {
 
 } // namespace
 
+std::string makeGoogleSearchUrl(const std::string& exerciseName) {
+    std::ostringstream encoded;
+    encoded << std::uppercase << std::hex;
+    const std::string query = exerciseName + " exercise technique";
+    for (unsigned char character : query) {
+        if (std::isalnum(character) || character == '-' || character == '_' ||
+            character == '.' || character == '~') {
+            encoded << static_cast<char>(character);
+        } else if (character == ' ') {
+            encoded << '+';
+        } else {
+            encoded << '%' << std::setw(2) << std::setfill('0')
+                    << static_cast<int>(character);
+        }
+    }
+    return "https://www.google.com/search?q=" + encoded.str();
+}
+
 std::string getCurrentDate() {
     time_t now = time(0);
     struct tm timeinfo;
