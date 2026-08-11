@@ -1,5 +1,12 @@
-# Detect OS
+# Detect OS and Termux before choosing compiler and install paths.
 OS_NAME := $(shell uname 2>/dev/null || echo Windows)
+IS_TERMUX := 0
+ifneq ($(strip $(TERMUX_VERSION)),)
+    IS_TERMUX := 1
+else ifneq ($(findstring com.termux,$(PREFIX)),)
+    IS_TERMUX := 1
+endif
+
 ifeq ($(OS_NAME),Windows)
     DETECTED_OS := Windows
     EXE_EXT := .exe
@@ -8,17 +15,34 @@ ifeq ($(OS_NAME),Windows)
     CP := copy
     INSTALL_DIR := $(APPDATA)\GymCli
     SYSTEM_BIN := C:\Windows\System32
+    CXX_DEFAULT := g++
 else
-    DETECTED_OS := $(OS_NAME)
     EXE_EXT :=
     RM := rm -rf
     MKDIR := mkdir -p
     CP := cp
     INSTALL_DIR := $(HOME)/.local/share/gymcli
-    SYSTEM_BIN := /usr/local/bin
+    SH_PATH := $(or $(shell command -v sh 2>/dev/null),/bin/sh)
+
+    ifeq ($(IS_TERMUX),1)
+        DETECTED_OS := Termux
+        TERMUX_PREFIX := $(if $(strip $(PREFIX)),$(PREFIX),/data/data/com.termux/files/usr)
+        SYSTEM_BIN := $(TERMUX_PREFIX)/bin
+        INSTALL_PRIVILEGE :=
+        CXX_DEFAULT := clang++
+    else
+        DETECTED_OS := $(OS_NAME)
+        SYSTEM_BIN := /usr/local/bin
+        CXX_DEFAULT := g++
+        ifeq ($(shell id -u 2>/dev/null),0)
+            INSTALL_PRIVILEGE :=
+        else
+            INSTALL_PRIVILEGE := sudo
+        endif
+    endif
 endif
 
-CXX = g++
+CXX = $(CXX_DEFAULT)
 CXXFLAGS = -std=c++11 -Wall -Wextra -pedantic
 TARGET = gymcli$(EXE_EXT)
 BIN_TARGET = gymcli.bin$(EXE_EXT)
@@ -66,20 +90,21 @@ ifeq ($(DETECTED_OS),Windows)
 	@echo Installation complete.
 else
 	@echo Installing on $(DETECTED_OS)...
-	sudo mkdir -p "$(SYSTEM_BIN)"
-	sudo cp "$(TARGET)" "$(SYSTEM_BIN)/$(BIN_TARGET)"
+	$(INSTALL_PRIVILEGE) $(MKDIR) "$(SYSTEM_BIN)"
+	$(INSTALL_PRIVILEGE) $(CP) "$(TARGET)" "$(SYSTEM_BIN)/$(BIN_TARGET)"
 	mkdir -p "$(INSTALL_DIR)"
 	@for db in $(DB_FILES); do \
 		if [ -f "$$db" ]; then cp "$$db" "$(INSTALL_DIR)/"; fi; \
 	done
-	echo '#!/bin/bash' > gymcli_launcher
-	echo 'DATA_DIR="$$HOME/.local/share/gymcli"' >> gymcli_launcher
+	echo '#!$(SH_PATH)' > gymcli_launcher
+	echo 'DATA_DIR="$(INSTALL_DIR)"' >> gymcli_launcher
+	echo 'mkdir -p "$$DATA_DIR" || exit 1' >> gymcli_launcher
 	echo 'cd "$$DATA_DIR" || exit 1' >> gymcli_launcher
-	echo 'exec "$(SYSTEM_BIN)/$(BIN_TARGET)"' >> gymcli_launcher
+	echo 'exec "$(SYSTEM_BIN)/$(BIN_TARGET)" "$$@"' >> gymcli_launcher
 	chmod +x gymcli_launcher
-	sudo cp gymcli_launcher "$(SYSTEM_BIN)/gymcli"
-	rm gymcli_launcher
-	@echo Installation complete.
+	$(INSTALL_PRIVILEGE) $(CP) gymcli_launcher "$(SYSTEM_BIN)/gymcli"
+	$(RM) gymcli_launcher
+	@echo "Installed gymcli to $(SYSTEM_BIN)/gymcli"
 endif
 
 uninstall:
@@ -88,9 +113,8 @@ ifeq ($(DETECTED_OS),Windows)
 	@del "$(SYSTEM_BIN)\$(BIN_TARGET)" "$(SYSTEM_BIN)\gymcli.bat"
 else
 	@echo Uninstalling from $(DETECTED_OS)...
-	sudo rm -f "$(SYSTEM_BIN)/$(BIN_TARGET)" "$(SYSTEM_BIN)/gymcli"
-	@echo "removing data: sudo rm -rf $(INSTALL_DIR)"
-	sudo rm -rf $(INSTALL_DIR)
+	$(INSTALL_PRIVILEGE) rm -f "$(SYSTEM_BIN)/$(BIN_TARGET)" "$(SYSTEM_BIN)/gymcli"
+	@echo "Workout data kept at $(INSTALL_DIR)"
 endif
 
 run: $(TARGET)
@@ -114,7 +138,7 @@ ifeq ($(DETECTED_OS),Windows)
 else
 	mkdir -p test_install/bin test_install/data
 	cp $(TARGET) test_install/bin/$(BIN_TARGET)
-	echo '#!/bin/bash' > test_install/bin/gymcli
+	echo '#!$(SH_PATH)' > test_install/bin/gymcli
 	echo 'SCRIPT_DIR="$$(cd "$$(dirname "$$0")" && pwd)"' >> test_install/bin/gymcli
 	echo 'DATA_DIR="$$SCRIPT_DIR/../data"' >> test_install/bin/gymcli
 	echo 'cd "$$DATA_DIR" && exec "$$SCRIPT_DIR/$(BIN_TARGET)"' >> test_install/bin/gymcli

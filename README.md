@@ -50,6 +50,23 @@ gymcli
 make uninstall
 ```
 
+Your workout data is kept in place when the program is uninstalled.
+
+### Termux on Android
+
+GymCLI detects Termux automatically. It uses `clang++`, installs into the
+writable Termux prefix, and does not call `sudo`.
+
+```bash
+pkg update
+pkg install git clang make
+git clone https://github.com/Sergi095/gymCli.git
+cd gymCli
+make
+make install
+gymcli
+```
+
 ### Run without installing
 
 ```bash
@@ -76,7 +93,7 @@ make test
 - Written in C++11 with no external dependencies
 - Uses local text files for storage
 - Source runs store data in the current directory
-- Installed runs store data under `~/.local/share/gymcli` on Linux and macOS
+- Installed runs store data under `~/.local/share/gymcli` on Linux, macOS, and Termux
 
 ## Other
 
