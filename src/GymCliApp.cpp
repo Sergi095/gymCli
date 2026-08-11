@@ -207,6 +207,60 @@ void boxLine(const std::string& value, int width) {
     std::cout << "| " << std::left << std::setw(width - 4) << content << " |\n";
 }
 
+void printWrappedText(const std::string& label, const std::string& value,
+                      int width, size_t indentation = 2) {
+    if (value.empty()) {
+        return;
+    }
+
+    const std::string firstPrefix(indentation, ' ');
+    const std::string continuation(indentation + label.size(), ' ');
+    std::string line = firstPrefix + label;
+    std::istringstream words(value);
+    std::string word;
+    bool hasWord = false;
+
+    while (words >> word) {
+        const std::string separator = hasWord ? " " : "";
+        if (line.size() > firstPrefix.size() + label.size() &&
+            line.size() + separator.size() + word.size() > static_cast<size_t>(width)) {
+            std::cout << line << '\n';
+            line = continuation + word;
+        } else {
+            line += separator + word;
+        }
+        hasWord = true;
+    }
+
+    if (hasWord) {
+        std::cout << line << '\n';
+    }
+}
+
+std::string routinePrescription(const RoutineExercise& exercise) {
+    std::string prescription;
+    if (!exercise.sets.empty() && !exercise.reps.empty()) {
+        prescription = exercise.sets + " sets x " + exercise.reps + " reps";
+    } else if (!exercise.sets.empty()) {
+        prescription = exercise.sets + " sets";
+    } else if (!exercise.reps.empty()) {
+        prescription = exercise.reps + " reps";
+    }
+    if (!exercise.duration.empty()) {
+        if (!prescription.empty()) prescription += " | ";
+        prescription += "Duration: " + exercise.duration;
+    }
+    if (!exercise.weight.empty()) {
+        if (!prescription.empty()) prescription += " | ";
+        prescription += "Weight: " + exercise.weight;
+    }
+    if (!exercise.rest.empty()) {
+        if (!prescription.empty()) prescription += " | ";
+        prescription += "Rest: " + exercise.rest;
+    }
+    return prescription;
+}
+
 void waitForEnter() {
     if (!isInteractiveInput()) {
         return;
@@ -618,14 +672,17 @@ void GymCliApp::viewAllRoutines(bool offerDetails) {
 }
 
 void GymCliApp::displayRoutineDetails(const WorkoutRoutine& routine) {
-    const int width = getTerminalWidth();
+    const int width = std::min(getTerminalWidth(), 76);
     std::cout << '\n' << std::string(width, '=') << '\n';
     std::cout << shortened(routine.getName(), width) << '\n';
     if (!routine.getFocus().empty()) {
-        std::cout << "Focus: " << routine.getFocus() << '\n';
+        std::cout << routine.getFocus() << " | ";
     }
+    std::cout << routine.getExercises().size()
+              << (routine.getExercises().size() == 1 ? " exercise" : " exercises") << '\n';
     if (!routine.getNotes().empty()) {
-        std::cout << "Instructions: " << routine.getNotes() << '\n';
+        std::cout << std::string(width, '-') << "\nINDICATIONS\n";
+        printWrappedText("", routine.getNotes(), width);
     }
     std::cout << std::string(width, '-') << '\n';
 
@@ -641,39 +698,20 @@ void GymCliApp::displayRoutineDetails(const WorkoutRoutine& routine) {
         const RoutineExercise& exercise = exercises[index];
         const std::string section = exercise.section.empty() ? "Exercises" : exercise.section;
         if (section != currentSection) {
-            if (!currentSection.empty()) {
-                std::cout << '\n';
-            }
             currentSection = section;
-            std::cout << currentSection << '\n';
+            std::cout << "\n[ " << currentSection << " ]\n";
         }
 
-        std::cout << "  [" << (index + 1) << "] " << exercise.name << '\n';
-        std::string prescription;
-        if (!exercise.sets.empty()) prescription += "Sets: " + exercise.sets;
-        if (!exercise.reps.empty()) {
-            if (!prescription.empty()) prescription += " | ";
-            prescription += "Reps: " + exercise.reps;
-        }
-        if (!exercise.duration.empty()) {
-            if (!prescription.empty()) prescription += " | ";
-            prescription += "Duration: " + exercise.duration;
-        }
-        if (!exercise.weight.empty()) {
-            if (!prescription.empty()) prescription += " | ";
-            prescription += "Weight: " + exercise.weight;
-        }
-        if (!exercise.rest.empty()) {
-            if (!prescription.empty()) prescription += " | ";
-            prescription += "Rest: " + exercise.rest;
-        }
+        std::cout << std::string(width, '-') << '\n';
+        std::cout << (index + 1) << ". " << exercise.name << '\n';
+        const std::string prescription = routinePrescription(exercise);
         if (!prescription.empty()) {
-            std::cout << "      " << prescription << '\n';
+            printWrappedText("", prescription, width, 3);
         }
         if (!exercise.notes.empty()) {
-            std::cout << "      Notes: " << exercise.notes << '\n';
+            printWrappedText("Notes: ", exercise.notes, width, 3);
         }
-        std::cout << "      Google: " << exercise.link << '\n';
+        std::cout << "   Google:\n   " << exercise.link << '\n';
     }
     std::cout << std::string(width, '=') << '\n';
 }

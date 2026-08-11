@@ -85,6 +85,7 @@ Import from the routine menu, or pass a file directly:
 
 ```bash
 gymcli --import-routine examples/muscle_strength.csv
+gymcli --import-routine examples/push_pull_legs.csv
 ```
 
 Use `--replace` to update a routine that already has the same name:
@@ -102,7 +103,9 @@ A CSV can optionally schedule the routine with paired `day` and `body_part`
 columns. Accepted body parts are `upper`, `lower`, `full`, and `rest`; short
 weekday and body-part codes such as `Mon,U` also work. Unspecified days remain
 rest days. See [`examples/muscle_strength.csv`](examples/muscle_strength.csv)
-for the converted full-body routine.
+for the converted full-body routine and
+[`examples/push_pull_legs.csv`](examples/push_pull_legs.csv) for a four-section
+push/pull/legs routine with stretches.
 
 ## Features
 

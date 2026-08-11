@@ -134,6 +134,19 @@ int main() {
     assert(fullBody.routine.getExercises()[0].link.find("google.com/search") != std::string::npos);
     assert(fullBody.routine.getExercises()[11].section == "Flexibility");
 
+    const RoutineCsvImportResult pushPullLegs =
+        RoutineCsvImporter::parseFile("examples/push_pull_legs.csv");
+    assert(pushPullLegs.success);
+    assert(pushPullLegs.routine.getName() == "Push Pull Legs");
+    assert(pushPullLegs.routine.getFocus() == "Push / Pull / Legs");
+    assert(pushPullLegs.routine.getExercises().size() == 19);
+    assert(pushPullLegs.routine.getExercises()[0].sets == "3");
+    assert(pushPullLegs.routine.getExercises()[0].reps == "7-12");
+    assert(pushPullLegs.routine.getExercises()[0].link.find("google.com/search") !=
+           std::string::npos);
+    assert(pushPullLegs.routine.getExercises()[9].section == "LEGS");
+    assert(pushPullLegs.routine.getExercises()[16].section == "STRETCHES");
+
     const WorkoutRoutine restored = WorkoutRoutine::deserialize(fullBody.routine.serialize());
     assert(restored.getName() == "Muscle Strength");
     assert(restored.getFocus() == "Full Body");
