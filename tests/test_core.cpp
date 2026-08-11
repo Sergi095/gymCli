@@ -23,11 +23,20 @@ int main() {
     const std::string routinesFile = "gymcli_test_" + token + "_routines.db";
     const std::string validCsvFile = "gymcli_test_" + token + "_routine.csv";
     const std::string invalidCsvFile = "gymcli_test_" + token + "_invalid.csv";
+    const std::string legacyDataFile = "gymcli_test_" + token + "_legacy_data.db";
+    const std::string legacyRoutinesFile = "gymcli_test_" + token + "_legacy_routines.db";
     std::remove(dataFile.c_str());
     std::remove(routinesFile.c_str());
+    std::remove(legacyDataFile.c_str());
+    std::remove(legacyRoutinesFile.c_str());
 
     {
         GymDatabase database(dataFile, routinesFile);
+        assert(database.getAllRoutines().empty());
+        assert(database.getActiveRoutine() == nullptr);
+
+        WorkoutRoutine defaultRoutine("Default Routine");
+        database.addRoutine(defaultRoutine);
 
         Exercise bench("Bench Press", "Chest", MeasurementType::REPS, BodyPart::UPPER);
         bench.setDate("2026-08-11");
@@ -59,6 +68,24 @@ int main() {
         WorkoutRoutine renamedRoutine("Renamed Routine");
         assert(database.updateRoutine(0, renamedRoutine));
         assert(database.getExercisesByRoutine("Renamed Routine").size() == 2);
+    }
+
+    {
+        WorkoutRoutine generatedDefault("Default Routine");
+        generatedDefault.assignDayToBodyPart("Monday", BodyPart::UPPER);
+        generatedDefault.assignDayToBodyPart("Tuesday", BodyPart::LOWER);
+        generatedDefault.assignDayToBodyPart("Wednesday", BodyPart::FULL);
+        generatedDefault.assignDayToBodyPart("Thursday", BodyPart::UPPER);
+        generatedDefault.assignDayToBodyPart("Friday", BodyPart::LOWER);
+        generatedDefault.assignDayToBodyPart("Saturday", BodyPart::FULL);
+        generatedDefault.assignDayToBodyPart("Sunday", BodyPart::OTHER);
+        std::ofstream routinesFileOutput(legacyRoutinesFile);
+        routinesFileOutput << "0\n" << generatedDefault.serialize() << '\n';
+    }
+    {
+        GymDatabase migratedDatabase(legacyDataFile, legacyRoutinesFile);
+        assert(migratedDatabase.getAllRoutines().empty());
+        assert(migratedDatabase.getActiveRoutine() == nullptr);
     }
 
     Exercise invalidBodyPart = Exercise::deserialize(
@@ -118,6 +145,8 @@ int main() {
     std::remove(routinesFile.c_str());
     std::remove(validCsvFile.c_str());
     std::remove(invalidCsvFile.c_str());
+    std::remove(legacyDataFile.c_str());
+    std::remove(legacyRoutinesFile.c_str());
     std::cout << "All core tests passed.\n";
     return 0;
 }

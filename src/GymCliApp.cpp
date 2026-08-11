@@ -484,10 +484,18 @@ void GymCliApp::viewExercisesByRoutine() {
                    static_cast<int>(routines.size()), routineId) || routineId == 0) {
         return;
     }
-    const auto exercises = db.getExercisesByRoutine(
-        routines[static_cast<size_t>(routineId - 1)].getName());
-    TableRenderer::renderExerciseList(exercises);
-    offerExerciseDetails(exercises);
+    const WorkoutRoutine& routine = routines[static_cast<size_t>(routineId - 1)];
+    displayRoutineDetails(routine);
+
+    const auto loggedExercises = db.getExercisesByRoutine(routine.getName());
+    if (loggedExercises.empty()) {
+        std::cout << "\nNo completed workouts logged for this routine yet.\n";
+        return;
+    }
+
+    std::cout << "\nLogged workout history\n";
+    TableRenderer::renderExerciseList(loggedExercises);
+    offerExerciseDetails(loggedExercises);
 }
 
 void GymCliApp::viewWorkoutSessions() {

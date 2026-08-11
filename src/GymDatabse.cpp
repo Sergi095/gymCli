@@ -24,6 +24,32 @@ std::string resolveDataFile(const std::string& filename) {
     return resolved + filename;
 }
 
+bool isUnusedGeneratedDefault(const WorkoutRoutine& routine,
+                              const std::vector<Exercise>& exercises) {
+    if (routine.getName() != "Default Routine" ||
+        !routine.getFocus().empty() || !routine.getNotes().empty() ||
+        !routine.getExercises().empty()) {
+        return false;
+    }
+
+    const std::map<std::string, BodyPart> expectedSchedule = {
+        {"Monday", BodyPart::UPPER}, {"Tuesday", BodyPart::LOWER},
+        {"Wednesday", BodyPart::FULL}, {"Thursday", BodyPart::UPPER},
+        {"Friday", BodyPart::LOWER}, {"Saturday", BodyPart::FULL},
+        {"Sunday", BodyPart::OTHER}
+    };
+    if (routine.getDayAssignments() != expectedSchedule) {
+        return false;
+    }
+
+    for (const auto& exercise : exercises) {
+        if (equalsIgnoreCase(exercise.getRoutineName(), routine.getName())) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 GymDatabase::GymDatabase(const std::string& filename, const std::string& routinesFile)
@@ -33,20 +59,22 @@ GymDatabase::GymDatabase(const std::string& filename, const std::string& routine
     loadFromFile();
     loadRoutinesFromFile();
 
-    // If no routines exist, create a default one
-    if (routines.empty()) {
-        WorkoutRoutine defaultRoutine("Default Routine");
-        defaultRoutine.assignDayToBodyPart("Monday", BodyPart::UPPER);
-        defaultRoutine.assignDayToBodyPart("Tuesday", BodyPart::LOWER);
-        defaultRoutine.assignDayToBodyPart("Wednesday", BodyPart::FULL);
-        defaultRoutine.assignDayToBodyPart("Thursday", BodyPart::UPPER);
-        defaultRoutine.assignDayToBodyPart("Friday", BodyPart::LOWER);
-        defaultRoutine.assignDayToBodyPart("Saturday", BodyPart::FULL);
-        defaultRoutine.assignDayToBodyPart("Sunday", BodyPart::OTHER);  // Rest day
-
-        routines.push_back(defaultRoutine);
-        activeRoutineIndex = 0;
+    // Older versions created a placeholder routine automatically. Remove only
+    // that untouched, unused placeholder; preserve customized or used routines.
+    for (size_t index = 0; index < routines.size(); ++index) {
+        if (!isUnusedGeneratedDefault(routines[index], exercises)) {
+            continue;
+        }
+        routines.erase(routines.begin() + index);
+        if (routines.empty()) {
+            activeRoutineIndex = -1;
+        } else if (activeRoutineIndex == static_cast<int>(index)) {
+            activeRoutineIndex = 0;
+        } else if (activeRoutineIndex > static_cast<int>(index)) {
+            --activeRoutineIndex;
+        }
         saveRoutinesToFile();
+        break;
     }
 
     // Recover cleanly from a stale or malformed active routine index.
