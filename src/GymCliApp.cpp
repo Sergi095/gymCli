@@ -10,10 +10,12 @@
 #include <sstream>
 #include <iterator>
 #include <cstdlib>
+#include <map>
 
 namespace {
 
 const int NO_DEFAULT = std::numeric_limits<int>::min();
+struct BackNavigation {};
 
 std::string shortened(const std::string& value, size_t width) {
     if (value.size() <= width) {
@@ -47,6 +49,9 @@ bool promptLine(const std::string& prompt, std::string& value) {
         return false;
     }
     value = trim(value);
+    if (equalsIgnoreCase(value, "/back")) {
+        throw BackNavigation();
+    }
     return true;
 }
 
@@ -270,14 +275,55 @@ void waitForEnter() {
     std::getline(std::cin, ignored);
 }
 
+enum class BrowseCommand { NEXT, PREVIOUS, LIST, BACK };
+
+BrowseCommand promptBrowseCommand(int current, int count) {
+    while (true) {
+        std::string command;
+        if (!promptLine("[n]ext / [p]revious / [l]ist / [b]ack: ", command)) {
+            return BrowseCommand::BACK;
+        }
+        if (equalsIgnoreCase(command, "n")) {
+            if (current < count) return BrowseCommand::NEXT;
+            std::cout << "Already at the last item.\n";
+        } else if (equalsIgnoreCase(command, "p")) {
+            if (current > 1) return BrowseCommand::PREVIOUS;
+            std::cout << "Already at the first item.\n";
+        } else if (equalsIgnoreCase(command, "l") || equalsIgnoreCase(command, "b")) {
+            return BrowseCommand::LIST;
+        } else if (command.empty() || command == "0") {
+            return BrowseCommand::BACK;
+        } else {
+            std::cout << "Choose n, p, l, or b.\n";
+        }
+    }
+}
+
 void offerExerciseDetails(const std::vector<Exercise>& exercises) {
     if (exercises.empty()) {
         return;
     }
     int id = 0;
-    if (promptInt("View exercise ID [0 to return]: ", 0,
-                  static_cast<int>(exercises.size()), id, 0) && id > 0) {
+    if (!promptInt("View exercise ID [0 to return]: ", 0,
+                   static_cast<int>(exercises.size()), id, 0)) {
+        return;
+    }
+    while (id > 0) {
         TableRenderer::renderExercise(exercises[static_cast<size_t>(id - 1)]);
+        const BrowseCommand command = promptBrowseCommand(id, static_cast<int>(exercises.size()));
+        if (command == BrowseCommand::NEXT) {
+            ++id;
+        } else if (command == BrowseCommand::PREVIOUS) {
+            --id;
+        } else if (command == BrowseCommand::LIST) {
+            TableRenderer::renderExerciseList(exercises);
+            if (!promptInt("View exercise ID [0 to return]: ", 0,
+                           static_cast<int>(exercises.size()), id, 0)) {
+                return;
+            }
+        } else {
+            return;
+        }
     }
 }
 
@@ -310,7 +356,8 @@ void GymCliApp::displayMenu() {
               << "  [7] By routine\n\n"
               << "Setup\n"
               << "  [10] Manage routines\n"
-              << "  [0] Exit\n\n";
+              << "  [0] Exit\n\n"
+              << "Type /back at a prompt to cancel the current action.\n\n";
 }
 
 bool GymCliApp::isUpperBodyCategory(const std::string& category) {
@@ -366,9 +413,45 @@ void GymCliApp::addNewExercise() {
 
     std::string name;
     std::string category;
-    if (!promptRequired("Exercise name: ", name) ||
-        !promptRequired("Category (Chest, Back, Legs, ...): ", category)) {
+    const WorkoutRoutine* activeRoutine = db.getActiveRoutine();
+    const RoutineExercise* plannedExercise = nullptr;
+    if (activeRoutine != nullptr && !activeRoutine->getExercises().empty()) {
+        const auto& planned = activeRoutine->getExercises();
+        std::cout << "Planned exercises for " << activeRoutine->getName() << ":\n";
+        for (size_t index = 0; index < planned.size(); ++index) {
+            std::cout << "  [" << index + 1 << "] "
+                      << shortened(planned[index].name,
+                                   static_cast<size_t>(getTerminalWidth() - 8)) << '\n';
+        }
+        int selected = 0;
+        if (!promptInt("Choose exercise [0 for custom]: ", 0,
+                       static_cast<int>(planned.size()), selected, 0)) {
+            return;
+        }
+        if (selected > 0) {
+            plannedExercise = &planned[static_cast<size_t>(selected - 1)];
+            name = plannedExercise->name;
+            std::cout << "Exercise: " << name << '\n';
+            const std::string prescription = routinePrescription(*plannedExercise);
+            if (!prescription.empty()) {
+                std::cout << "Plan: " << prescription << '\n';
+            }
+        }
+    }
+    if (plannedExercise == nullptr && !promptRequired("Exercise name: ", name)) {
         return;
+    }
+    const std::string suggestedCategory = plannedExercise == nullptr
+        ? "" : plannedExercise->section;
+    if (suggestedCategory.empty()) {
+        if (!promptRequired("Category (Chest, Back, Legs, ...): ", category)) {
+            return;
+        }
+    } else {
+        if (!promptLine("Category [" + suggestedCategory + "]: ", category)) {
+            return;
+        }
+        category = storedText(category.empty() ? suggestedCategory : category);
     }
 
     BodyPart exerciseBodyPart = getCategoryBodyPart(category);
@@ -396,7 +479,6 @@ void GymCliApp::addNewExercise() {
         std::cout << "Enter a real date in YYYY-MM-DD format.\n";
     }
 
-    const WorkoutRoutine* activeRoutine = db.getActiveRoutine();
     std::string routineName;
     if (activeRoutine != nullptr) {
         const std::string workoutDay = getDayOfWeek(workoutDate);
@@ -425,8 +507,15 @@ void GymCliApp::addNewExercise() {
         ? MeasurementType::TIME
         : MeasurementType::REPS;
 
-    int numberOfSets = 3;
-    if (!promptInt("Number of sets [3]: ", 1, 100, numberOfSets, 3)) {
+    int suggestedSets = 3;
+    int parsedSets = 0;
+    if (plannedExercise != nullptr && parseInt(plannedExercise->sets, parsedSets) &&
+        parsedSets >= 1 && parsedSets <= 100) {
+        suggestedSets = parsedSets;
+    }
+    int numberOfSets = suggestedSets;
+    if (!promptInt("Number of sets [" + std::to_string(suggestedSets) + "]: ",
+                   1, 100, numberOfSets, suggestedSets)) {
         return;
     }
 
@@ -518,38 +607,7 @@ void GymCliApp::viewExercisesByBodyPart() {
 }
 
 void GymCliApp::viewExercisesByRoutine() {
-    const auto& routines = db.getAllRoutines();
-    if (routines.empty()) {
-        std::cout << "No routines found.\n";
-        return;
-    }
-
-    std::cout << "\nRoutines\n";
-    for (size_t i = 0; i < routines.size(); ++i) {
-        std::cout << "  [" << (i + 1) << "] " << routines[i].getName();
-        if (db.getActiveRoutine() == &routines[i]) {
-            std::cout << " (active)";
-        }
-        std::cout << '\n';
-    }
-
-    int routineId = 0;
-    if (!promptInt("Choose routine [0 to cancel]: ", 0,
-                   static_cast<int>(routines.size()), routineId) || routineId == 0) {
-        return;
-    }
-    const WorkoutRoutine& routine = routines[static_cast<size_t>(routineId - 1)];
-    displayRoutineDetails(routine);
-
-    const auto loggedExercises = db.getExercisesByRoutine(routine.getName());
-    if (loggedExercises.empty()) {
-        std::cout << "\nNo completed workouts logged for this routine yet.\n";
-        return;
-    }
-
-    std::cout << "\nLogged workout history\n";
-    TableRenderer::renderExerciseList(loggedExercises);
-    offerExerciseDetails(loggedExercises);
+    viewAllRoutines(true, true);
 }
 
 void GymCliApp::viewWorkoutSessions() {
@@ -561,28 +619,88 @@ void GymCliApp::viewWorkoutSessions() {
 
     int sessionId = 0;
     if (!promptInt("View session number [0 to return]: ", 0,
-                   static_cast<int>(sessionMap.size()), sessionId, 0) || sessionId == 0) {
+                   static_cast<int>(sessionMap.size()), sessionId, 0)) {
         return;
     }
-    auto selected = sessionMap.begin();
-    std::advance(selected, sessionId - 1);
-    TableRenderer::renderExerciseList(selected->second);
-    offerExerciseDetails(selected->second);
+    while (sessionId > 0) {
+        auto selected = sessionMap.begin();
+        std::advance(selected, sessionId - 1);
+        std::cout << "\nSession: " << selected->first << '\n';
+        TableRenderer::renderExerciseList(selected->second);
+        offerExerciseDetails(selected->second);
+        const BrowseCommand command = promptBrowseCommand(
+            sessionId, static_cast<int>(sessionMap.size()));
+        if (command == BrowseCommand::NEXT) {
+            ++sessionId;
+        } else if (command == BrowseCommand::PREVIOUS) {
+            --sessionId;
+        } else if (command == BrowseCommand::LIST) {
+            TableRenderer::renderSessionList(sessionMap);
+            if (!promptInt("View session number [0 to return]: ", 0,
+                           static_cast<int>(sessionMap.size()), sessionId, 0)) {
+                return;
+            }
+        } else {
+            return;
+        }
+    }
 }
 
 void GymCliApp::viewProgressForExercise() {
-    std::string name;
-    if (!promptRequired("Exercise name: ", name)) {
+    std::map<std::string, std::string> names;
+    for (const auto& exercise : db.getAllExercises()) {
+        names.emplace(toLower(exercise.getName()), exercise.getName());
+    }
+    if (names.empty()) {
+        std::cout << "Log an exercise to see its progress graph.\n";
         return;
     }
-    TableRenderer::renderProgressChart(name, db.getProgressData(name));
+    std::vector<std::string> choices;
+    std::cout << "\nExercise progress\n";
+    for (const auto& entry : names) {
+        choices.push_back(entry.second);
+        std::cout << "  [" << choices.size() << "] "
+                  << shortened(entry.second, static_cast<size_t>(getTerminalWidth() - 8))
+                  << '\n';
+    }
+    int selected = 0;
+    if (!promptInt("Choose exercise [0 to cancel]: ", 0,
+                   static_cast<int>(choices.size()), selected)) {
+        return;
+    }
+    while (selected > 0) {
+        const std::string& name = choices[static_cast<size_t>(selected - 1)];
+        TableRenderer::renderProgressChart(name, db.getProgressData(name));
+        const BrowseCommand command = promptBrowseCommand(
+            selected, static_cast<int>(choices.size()));
+        if (command == BrowseCommand::NEXT) {
+            ++selected;
+        } else if (command == BrowseCommand::PREVIOUS) {
+            --selected;
+        } else if (command == BrowseCommand::LIST) {
+            std::cout << "\nExercise progress\n";
+            for (size_t index = 0; index < choices.size(); ++index) {
+                std::cout << "  [" << index + 1 << "] " << choices[index] << '\n';
+            }
+            if (!promptInt("Choose exercise [0 to cancel]: ", 0,
+                           static_cast<int>(choices.size()), selected)) {
+                return;
+            }
+        } else {
+            return;
+        }
+    }
 }
 
 void GymCliApp::manageRoutines() {
     while (running && std::cin.good()) {
         displayRoutinesMenu();
         int choice = 0;
-        if (!promptInt("Choose an option: ", 0, 6, choice)) {
+        try {
+            if (!promptInt("Choose an option: ", 0, 6, choice)) {
+                return;
+            }
+        } catch (const BackNavigation&) {
             return;
         }
         if (choice == 0) {
@@ -590,19 +708,27 @@ void GymCliApp::manageRoutines() {
             return;
         }
 
-        switch (choice) {
-            case 1: viewAllRoutines(); break;
-            case 2: addNewRoutine(); break;
-            case 3: editRoutine(); break;
-            case 4: deleteRoutine(); break;
-            case 5: setActiveRoutine(); break;
-            case 6: importRoutineFromCsv(); break;
-            default: break;
+        try {
+            switch (choice) {
+                case 1: viewAllRoutines(); break;
+                case 2: addNewRoutine(); break;
+                case 3: editRoutine(); break;
+                case 4: deleteRoutine(); break;
+                case 5: setActiveRoutine(); break;
+                case 6: importRoutineFromCsv(); break;
+                default: break;
+            }
+        } catch (const BackNavigation&) {
+            std::cout << "Back to routines.\n";
+            clearTerminal();
+            continue;
         }
         if (!std::cin.good()) {
             return;
         }
-        waitForEnter();
+        if (choice != 1) {
+            waitForEnter();
+        }
         clearTerminal();
     }
 }
@@ -618,10 +744,11 @@ void GymCliApp::displayRoutinesMenu() {
               << "  [4] Delete routine\n"
               << "  [5] Set active routine\n"
               << "  [6] Import routine from CSV\n"
-              << "  [0] Back\n\n";
+              << "  [0] Back\n\n"
+              << "Type /back at a prompt to cancel the current action.\n\n";
 }
 
-void GymCliApp::viewAllRoutines(bool offerDetails) {
+void GymCliApp::viewAllRoutines(bool offerDetails, bool includeHistory) {
     const auto& routines = db.getAllRoutines();
     if (routines.empty()) {
         std::cout << "No routines found.\n";
@@ -664,15 +791,45 @@ void GymCliApp::viewAllRoutines(bool offerDetails) {
 
     if (offerDetails) {
         int routineId = 0;
-        if (promptInt("View routine ID [0 to return]: ", 0,
-                      static_cast<int>(routines.size()), routineId, 0) && routineId > 0) {
-            displayRoutineDetails(routines[static_cast<size_t>(routineId - 1)]);
+        if (!promptInt("View routine ID [0 to return]: ", 0,
+                       static_cast<int>(routines.size()), routineId, 0)) {
+            return;
+        }
+        while (routineId > 0) {
+            const WorkoutRoutine& routine = routines[static_cast<size_t>(routineId - 1)];
+            displayRoutineDetails(routine);
+            if (includeHistory) {
+                const auto logged = db.getExercisesByRoutine(routine.getName());
+                if (logged.empty()) {
+                    std::cout << "\nNo completed workouts logged for this routine yet.\n";
+                } else {
+                    std::cout << "\nLogged workout history\n";
+                    TableRenderer::renderExerciseList(logged);
+                    offerExerciseDetails(logged);
+                }
+            }
+            const BrowseCommand command = promptBrowseCommand(
+                routineId, static_cast<int>(routines.size()));
+            if (command == BrowseCommand::NEXT) {
+                ++routineId;
+            } else if (command == BrowseCommand::PREVIOUS) {
+                --routineId;
+            } else if (command == BrowseCommand::LIST) {
+                viewAllRoutines(false);
+                if (!promptInt("View routine ID [0 to return]: ", 0,
+                               static_cast<int>(routines.size()), routineId, 0)) {
+                    return;
+                }
+            } else {
+                return;
+            }
         }
     }
 }
 
 void GymCliApp::displayRoutineDetails(const WorkoutRoutine& routine) {
     const int width = std::min(getTerminalWidth(), 76);
+    TableRenderer::renderRoutineChart(routine);
     std::cout << '\n' << std::string(width, '=') << '\n';
     std::cout << shortened(routine.getName(), width) << '\n';
     if (!routine.getFocus().empty()) {
@@ -905,31 +1062,43 @@ void GymCliApp::run() {
     while (running && std::cin.good()) {
         displayMenu();
         int choice = 0;
-        if (!promptInt("Choose an option: ", 0, 10, choice)) {
-            break;
+        try {
+            if (!promptInt("Choose an option: ", 0, 10, choice)) {
+                break;
+            }
+        } catch (const BackNavigation&) {
+            std::cout << "Already at the main menu.\n";
+            continue;
         }
 
         bool pauseAfterAction = true;
-        switch (choice) {
-            case 0: running = false; pauseAfterAction = false; break;
-            case 1: addNewExercise(); break;
-            case 2: viewAllExercises(); break;
-            case 3: viewExercisesByCategory(); break;
-            case 4: viewExercisesByName(); break;
-            case 5: viewExercisesByDay(); break;
-            case 6: viewExercisesByBodyPart(); break;
-            case 7: viewExercisesByRoutine(); break;
-            case 8: viewWorkoutSessions(); break;
-            case 9: viewProgressForExercise(); break;
-            case 10: manageRoutines(); pauseAfterAction = false; break;
-            default: break;
+        try {
+            switch (choice) {
+                case 0: running = false; pauseAfterAction = false; break;
+                case 1: addNewExercise(); break;
+                case 2: viewAllExercises(); pauseAfterAction = false; break;
+                case 3: viewExercisesByCategory(); pauseAfterAction = false; break;
+                case 4: viewExercisesByName(); pauseAfterAction = false; break;
+                case 5: viewExercisesByDay(); pauseAfterAction = false; break;
+                case 6: viewExercisesByBodyPart(); pauseAfterAction = false; break;
+                case 7: viewExercisesByRoutine(); pauseAfterAction = false; break;
+                case 8: viewWorkoutSessions(); pauseAfterAction = false; break;
+                case 9: viewProgressForExercise(); pauseAfterAction = false; break;
+                case 10: manageRoutines(); pauseAfterAction = false; break;
+                default: break;
+            }
+        } catch (const BackNavigation&) {
+            std::cout << "Back to main menu.\n";
+            pauseAfterAction = false;
         }
 
         if (!std::cin.good()) {
             break;
         }
-        if (running && pauseAfterAction) {
-            waitForEnter();
+        if (running) {
+            if (pauseAfterAction) {
+                waitForEnter();
+            }
             clearTerminal();
         }
     }

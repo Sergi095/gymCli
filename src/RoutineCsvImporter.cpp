@@ -325,19 +325,23 @@ RoutineCsvImportResult RoutineCsvImporter::parseFile(const std::string& filename
                 result.errors.push_back(rowError(recordStartLine, "Invalid weekday."));
                 continue;
             }
-            if (assignedDays.find(day) != assignedDays.end()) {
-                result.errors.push_back(rowError(
-                    recordStartLine, day + " was already assigned on line " +
-                    std::to_string(assignedDays[day]) + "."));
-                continue;
-            }
             if (!parseBodyPart(rawBodyPart, bodyPart)) {
                 result.errors.push_back(rowError(
                     recordStartLine, "Invalid body part; use upper, lower, full, or rest."));
                 continue;
             }
-            result.routine.assignDayToBodyPart(day, bodyPart);
-            assignedDays[day] = recordStartLine;
+            const auto previous = assignedDays.find(day);
+            if (previous != assignedDays.end() &&
+                result.routine.getBodyPartForDay(day) != bodyPart) {
+                result.errors.push_back(rowError(
+                    recordStartLine, day + " conflicts with the assignment on line " +
+                    std::to_string(previous->second) + "."));
+                continue;
+            }
+            if (previous == assignedDays.end()) {
+                result.routine.assignDayToBodyPart(day, bodyPart);
+                assignedDays[day] = recordStartLine;
+            }
             rowHasContent = true;
         }
 

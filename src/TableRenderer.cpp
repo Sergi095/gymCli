@@ -241,3 +241,55 @@ void TableRenderer::renderProgressChart(
     }
     rule('-', width);
 }
+
+void TableRenderer::renderRoutineChart(const WorkoutRoutine& routine) {
+    const int width = std::min(getTerminalWidth(), 80);
+    const int barWidth = std::max(1, width - 25);
+    const std::vector<std::string> days = {
+        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+    };
+    std::map<BodyPart, size_t> dayCounts;
+    for (const auto& day : days) {
+        ++dayCounts[routine.getBodyPartForDay(day)];
+    }
+
+    std::cout << '\n' << shorten("Routine graph: " + routine.getName(), width) << '\n';
+    rule('-', width);
+    std::cout << "Weekly days\n";
+    const BodyPart parts[] = {BodyPart::UPPER, BodyPart::LOWER, BodyPart::FULL, BodyPart::OTHER};
+    const char* labels[] = {"Upper", "Lower", "Full", "Rest"};
+    for (size_t index = 0; index < 4; ++index) {
+        const size_t count = dayCounts[parts[index]];
+        std::cout << std::left << std::setw(16) << labels[index] << " | "
+                  << std::string(count, '#') << (count ? " " : "") << count << '\n';
+    }
+
+    const auto& exercises = routine.getExercises();
+    if (!exercises.empty()) {
+        std::vector<std::pair<std::string, size_t>> sections;
+        for (const auto& exercise : exercises) {
+            const std::string label = exercise.section.empty() ? "Exercises" : exercise.section;
+            auto found = std::find_if(sections.begin(), sections.end(),
+                [&label](const std::pair<std::string, size_t>& section) {
+                    return section.first == label;
+                });
+            if (found == sections.end()) {
+                sections.push_back(std::make_pair(label, 1));
+            } else {
+                ++found->second;
+            }
+        }
+        size_t largest = 0;
+        for (const auto& section : sections) {
+            largest = std::max(largest, section.second);
+        }
+        std::cout << "Exercises by section\n";
+        for (const auto& section : sections) {
+            const int length = std::max(1, static_cast<int>(
+                section.second * static_cast<size_t>(barWidth) / largest));
+            std::cout << std::left << std::setw(16) << shorten(section.first, 15)
+                      << " | " << std::string(length, '#') << ' ' << section.second << '\n';
+        }
+    }
+    rule('-', width);
+}

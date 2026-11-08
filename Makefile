@@ -123,8 +123,11 @@ run: $(TARGET)
 $(TEST_TARGET): $(TEST_SRCS) $(DEPS) | $(OBJDIR)
 	$(CXX) $(CXXFLAGS) -I$(INCDIR) -o $@ $(TEST_SRCS)
 
-test: $(TEST_TARGET)
+test: $(TEST_TARGET) $(TARGET)
 	./$(TEST_TARGET)
+ifneq ($(DETECTED_OS),Windows)
+	sh tests/test_cli.sh ./$(TARGET)
+endif
 
 devinstall: $(TARGET)
 ifeq ($(DETECTED_OS),Windows)

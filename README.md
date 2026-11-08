@@ -86,7 +86,19 @@ Import from the routine menu, or pass a file directly:
 ```bash
 gymcli --import-routine examples/muscle_strength.csv
 gymcli --import-routine examples/push_pull_legs.csv
+gymcli --import-routine examples/weekly_strength.csv
 ```
+
+Check a CSV and see its routine graph before importing it:
+
+```bash
+gymcli --preview-routine examples/weekly_strength.csv
+```
+
+The preview reports CSV errors with line numbers and does not save the routine.
+The graph shows days per body part and exercises per section. Routine details
+in the interactive menu show the same graph. When logging a workout, you can
+select an exercise from the active routine instead of retyping its name.
 
 Use `--replace` to update a routine that already has the same name:
 
@@ -102,10 +114,23 @@ GymCLI creates a Google exercise-technique search link automatically.
 A CSV can optionally schedule the routine with paired `day` and `body_part`
 columns. Accepted body parts are `upper`, `lower`, `full`, and `rest`; short
 weekday and body-part codes such as `Mon,U` also work. Unspecified days remain
-rest days. See [`examples/muscle_strength.csv`](examples/muscle_strength.csv)
+rest days. Several exercise rows may repeat the same day and body part;
+conflicting assignments are rejected. See
+[`examples/weekly_strength.csv`](examples/weekly_strength.csv) for that layout,
+[`examples/muscle_strength.csv`](examples/muscle_strength.csv)
 for the converted full-body routine and
 [`examples/push_pull_legs.csv`](examples/push_pull_legs.csv) for a four-section
 push/pull/legs routine with stretches.
+
+## Navigation
+
+- Type `/back` at any interactive prompt to cancel the current action and
+  return to its parent menu. A workout or routine edit is saved only after its
+  prompts are completed.
+- While viewing an exercise, routine, session, or progress graph, use `n` for
+  next, `p` for previous, and `b` or `l` to return to the list. At a list,
+  enter `0` to return to its menu.
+- Menu option `0` returns to the parent menu or exits from the main menu.
 
 ## Features
 
@@ -114,7 +139,8 @@ push/pull/legs routine with stretches.
 - **Workout routines**: Assign upper, lower, full-body, or rest days
 - **CSV routine import**: Load exercises, instructions, prescriptions, and schedules
 - **Exercise links**: Show clickable Google technique searches in exercise details
-- **Progress charts**: Compare the maximum weight by date
+- **Progress charts**: Select a logged exercise and compare maximum weight by date
+- **Routine graphs**: See the weekly body-part balance and exercise counts by section
 - **Responsive output**: Compact cards on narrow screens and tables on wide ones
 - **Validated prompts**: Bad input is explained and requested again instead of being silently changed
 

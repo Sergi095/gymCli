@@ -24,7 +24,7 @@ private:
     // Routine management methods
     void manageRoutines();
     void displayRoutinesMenu();
-    void viewAllRoutines(bool offerDetails = true);
+    void viewAllRoutines(bool offerDetails = true, bool includeHistory = false);
     void displayRoutineDetails(const WorkoutRoutine& routine);
     void addNewRoutine();
     void editRoutine();

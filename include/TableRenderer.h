@@ -5,6 +5,7 @@
 #include <map>
 #include <string>
 #include "Exercise.h"
+#include "WorkoutRoutine.h"
 
 class TableRenderer {
 public:
@@ -13,6 +14,7 @@ public:
     static void renderSessionList(const std::map<std::string, std::vector<Exercise>>& sessionMap);
     static void renderProgressChart(const std::string& exerciseName,
                                  const std::map<std::string, double>& progressData);
+    static void renderRoutineChart(const WorkoutRoutine& routine);
 };
 
 #endif // TABLE_RENDERER_H

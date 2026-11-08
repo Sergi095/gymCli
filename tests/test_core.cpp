@@ -115,6 +115,17 @@ int main() {
     assert(imported.routine.getBodyPartForDay("Friday") == BodyPart::OTHER);
 
     {
+        std::ofstream csv(validCsvFile);
+        csv << "routine,day,body_part,section,exercise\n"
+            << "Strength,Mon,upper,Push,Bench Press\n"
+            << "Strength,Monday,U,Push,Shoulder Press\n";
+    }
+    const RoutineCsvImportResult repeatedDay = RoutineCsvImporter::parseFile(validCsvFile);
+    assert(repeatedDay.success);
+    assert(repeatedDay.routine.getExercises().size() == 2);
+    assert(repeatedDay.routine.getBodyPartForDay("Monday") == BodyPart::UPPER);
+
+    {
         std::ofstream csv(invalidCsvFile);
         csv << "routine,day,body_part\n"
             << "Duplicate,Monday,upper\n"
@@ -146,6 +157,13 @@ int main() {
            std::string::npos);
     assert(pushPullLegs.routine.getExercises()[9].section == "LEGS");
     assert(pushPullLegs.routine.getExercises()[16].section == "STRETCHES");
+
+    const RoutineCsvImportResult weekly =
+        RoutineCsvImporter::parseFile("examples/weekly_strength.csv");
+    assert(weekly.success);
+    assert(weekly.routine.getExercises().size() == 4);
+    assert(weekly.routine.getBodyPartForDay("Monday") == BodyPart::UPPER);
+    assert(weekly.routine.getBodyPartForDay("Friday") == BodyPart::FULL);
 
     const WorkoutRoutine restored = WorkoutRoutine::deserialize(fullBody.routine.serialize());
     assert(restored.getName() == "Muscle Strength");
